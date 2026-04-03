@@ -1,0 +1,57 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "msvc2022-x64-debug",
+      "displayName": "MSVC 2022 x64 Debug",
+      "description": "Visual Studio 2022, x64, Debug",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v143",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_STANDARD": "17"
+      }
+    },
+    {
+      "name": "msvc2022-x64-release",
+      "displayName": "MSVC 2022 x64 Release",
+      "description": "Visual Studio 2022, x64, Release",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v143",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_STANDARD": "17"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "msvc2022-x64-debug-build",
+      "displayName": "Build Debug",
+      "configurePreset": "msvc2022-x64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "msvc2022-x64-release-build",
+      "displayName": "Build Release",
+      "configurePreset": "msvc2022-x64-release",
+      "configuration": "Release"
+    }
+  ]
+}

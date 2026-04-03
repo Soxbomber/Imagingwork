@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/Imagingwork">
+        <file>icons/camera.png</file>
+    </qresource>
+</RCC>
