@@ -22,7 +22,10 @@ protected:
 
 private slots:
     // CamSubWindow::deviceReadyToLaunch 수신
-    void onDeviceReadyToLaunch(const DeviceInfo& deviceinfo, IdsCamera* camera);
+    void onDeviceReadyToLaunch(const DeviceInfo& deviceinfo, ICameraDriver* camera);
+
+    // ImageViewerDock::viewerClosed 수신 → 카메라 정지
+    void onViewerClosed(const QString& description);
 
     // IconLabel(camButton) 클릭
     void onCamButtonClicked();

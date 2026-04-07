@@ -4,9 +4,6 @@
 // ── UI 초기화 ────────────────────────────────────────────────────────────────
 void Ui_ImagingworkClass::setupUi(QMainWindow* parent)
 {
-    peak::Library::Initialize();
-    peak::icv::library::Init();
-
     if (parent->objectName().isEmpty())
         parent->setObjectName(QString::fromUtf8("ImagingworkClass"));
     parent->resize(1280, 960);

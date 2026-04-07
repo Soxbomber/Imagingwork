@@ -143,3 +143,12 @@ void ImageViewerDock::UpdateImageViewer(QImage image)
 
     m_view->updateImage(std::move(image));
 }
+
+void ImageViewerDock::closeEvent(QCloseEvent* event)
+{
+    // 카메라 정지 요청 시그널 emit — description으로 어떤 카메라인지 식별
+    emit viewerClosed(m_description);
+
+    // 부모 클래스의 closeEvent 호출 → WA_DeleteOnClose에 의해 위젯 소멸
+    QDockWidget::closeEvent(event);
+}

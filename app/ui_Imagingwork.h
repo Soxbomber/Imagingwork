@@ -14,8 +14,6 @@
 #include <QtWidgets/QStatusBar>
 #include <QtWidgets/QToolBar>
 #include <QtWidgets/QWidget>
-#include <peak/peak.hpp>
-#include <peak_icv/library/peak_icv_library.hpp>
 #include "Iconlabel.h"
 #include "devicemanager.h"
 #include "Camera_submenu.h"

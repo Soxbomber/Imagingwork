@@ -8,7 +8,9 @@
 #include <QMouseEvent>
 #include <QPixmap>
 #include <QScrollBar>
+#include <QCloseEvent>
 
+// ── ImageGraphicsView ──────────────────────────────────────────
 class ImageGraphicsView : public QGraphicsView {
     Q_OBJECT
 public:
@@ -35,6 +37,7 @@ private:
     QPoint               m_lastPanPoint;
 };
 
+// ── ImageViewerDock ────────────────────────────────────────────
 class ImageViewerDock : public QDockWidget {
     Q_OBJECT
 public:
@@ -49,6 +52,14 @@ public:
 
 public slots:
     void UpdateImageViewer(QImage image);
+
+signals:
+    // 창이 닫힐 때 description을 전달 → 외부에서 카메라 정지 처리
+    void viewerClosed(const QString& description);
+
+protected:
+    // X 버튼 클릭 시 viewerClosed 시그널 emit 후 닫기
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void onTopLevelChanged(bool floating);

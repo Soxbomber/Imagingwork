@@ -1,6 +1,4 @@
-# ── app 모듈 ─────────────────────────────────────────────────────────────────
-# 담당: 메인 윈도우, UI 구성, 진입점(main)
-# 의존: camera / device / viewer 모듈 전체
+# app module - main window, UI, entry point
 
 set(APP_SOURCES
     main.cpp
@@ -14,7 +12,7 @@ set(APP_SOURCES
     Iconlabel.cpp
 )
 
-# Qt 리소스는 루트에 위치
+# Qt 리소스 (icons + CTI 포함)
 set(APP_RESOURCES
     ${CMAKE_SOURCE_DIR}/resources.qrc
 )
@@ -35,19 +33,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt5::Core
     Qt5::Gui
     Qt5::Widgets
-    ids_peak::ids_peak
-    ids_peak_icv::ids_peak_icv
 )
 
-# ── IDS peak DLL 배포 ────────────────────────────────────────────────────────
-# 실행 파일(${PROJECT_NAME}) 타겟에 지정해야 .exe와 같은 폴더에 DLL이 복사됨.
-# camera 정적 라이브러리에 지정하면 라이브러리 출력 경로에 복사되어
-# 디버깅 시 "ids_peak.dll을 찾을 수 없음" 에러가 발생함.
-ids_peak_deploy(${PROJECT_NAME})
-ids_peak_icv_deploy(${PROJECT_NAME})
-
-# ── MSVC / VS 2022 설정 ──────────────────────────────────────────────────────
 if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
     target_compile_definitions(${PROJECT_NAME} PRIVATE
         UNICODE
         _UNICODE
@@ -63,7 +52,7 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
-# ── 빌드 후: Qt DLL 자동 배포 ───────────────────────────────────────────────
+# windeployqt: Qt DLL 자동 배포
 find_program(WINDEPLOYQT windeployqt
     HINTS "${Qt5_DIR}/../../../bin"
 )
