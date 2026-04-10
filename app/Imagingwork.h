@@ -21,15 +21,15 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private slots:
-    // CamSubWindow::deviceReadyToLaunch 수신
     void onDeviceReadyToLaunch(const DeviceInfo& deviceinfo, ICameraDriver* camera);
-
-    // ImageViewerDock::viewerClosed 수신 → 카메라 정지
     void onViewerClosed(const QString& description);
-
-    // IconLabel(camButton) 클릭
     void onCamButtonClicked();
 
 private:
+    // 카메라 스트림 정지 + viewer 메모리 해제
+    // closeEvent와 소멸자 모두에서 호출 가능 (m_stopped로 중복 방지)
+    void stopAllCameras();
+
     Ui::ImagingworkClass ui;
+    bool m_stopped{ false };  // stopAllCameras 중복 실행 방지
 };

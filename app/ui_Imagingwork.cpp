@@ -100,6 +100,9 @@ ImageViewerDock* Ui_ImagingworkClass::getOrCreateViewer(QMainWindow* mainWindow,
         if (viewer
             && viewer->windowTitle() == deviceinfo.name
             && viewer->description() == deviceinfo.description) {
+            // 기존 dock 재사용 시 이전 이미지 즉시 제거
+            // (StopGrabbing 후 재연결 시 잔상 방지)
+            viewer->clearImage();
             viewer->show(); viewer->raise(); viewer->activateWindow();
             return viewer;
         }

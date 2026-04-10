@@ -19,11 +19,12 @@ set(CMAKE_AUTOUIC OFF)
 
 # Qt5 경로 지정:
 #   cmake .. -DQt5_DIR="C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5"
-find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Multimedia)
 
 # 서브모듈 등록 순서: 의존성 낮은 순
 #   device -> viewer -> camera -> app
 add_subdirectory(device)
 add_subdirectory(viewer)
 add_subdirectory(camera)
+add_subdirectory(camera/uvc)
 add_subdirectory(app)

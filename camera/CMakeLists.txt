@@ -25,6 +25,10 @@ add_library(camera STATIC
     genicam/ArvGenApiXml.cpp
     genicam/ArvCameraDriver.h
     genicam/ArvCameraDriver.cpp
+
+    # AVX2 가속 Bayer debayer
+    genicam/DebayerAVX2.h
+    genicam/DebayerAVX2.cpp
 )
 
 target_include_directories(camera
@@ -76,4 +80,15 @@ target_link_libraries(camera PUBLIC ZLIB::ZLIB)
 if(MSVC)
     target_compile_options(camera PRIVATE /utf-8)
     target_compile_definitions(camera PRIVATE UNICODE _UNICODE)
+    # DebayerAVX2.cpp 전용 /arch:AVX2
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/genicam/DebayerAVX2.cpp
+        PROPERTIES COMPILE_OPTIONS "/arch:AVX2"
+    )
+else()
+    # GCC/Clang AVX2
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/genicam/DebayerAVX2.cpp
+        PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma"
+    )
 endif()

@@ -24,15 +24,20 @@ add_executable(${PROJECT_NAME} WIN32
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/camera          # ICameraDriver.h
+    ${CMAKE_SOURCE_DIR}/camera/uvc      # UvcCameraDriver.h
+    ${CMAKE_SOURCE_DIR}/camera/genicam  # ArvCameraDriver.h
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     camera
+    uvc
     device
     viewer
     Qt5::Core
     Qt5::Gui
     Qt5::Widgets
+    Qt5::Multimedia
 )
 
 if(MSVC)

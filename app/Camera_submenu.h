@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QLabel>
 #include "devicemanager.h"
 #include "deviceitemwidget.h"
 #include "ICameraDriver.h"
@@ -16,7 +17,10 @@ public:
     explicit CamSubWindow(DeviceManager* deviceManager, QWidget* parent = nullptr);
     ~CamSubWindow();
 
-    ICameraDriver* getCamera() const { return m_idscamera; }
+    // 특정 카메라를 담당하는 드라이버 반환 (description 기준)
+    ICameraDriver* getDriverFor(const QString& description) const;
+    // 하위 호환: 첫 번째 드라이버 반환
+    ICameraDriver* getCamera() const;
 
 signals:
     void deviceReadyToLaunch(const DeviceInfo& deviceinfo,
@@ -32,5 +36,12 @@ private:
     DeviceManager*    m_deviceManager;
     QVBoxLayout*      m_listLayout;
     DeviceItemWidget* m_selectedWidget;
-    ICameraDriver*    m_idscamera;
+
+    // USB3 Vision (libusb + Aravis)
+    ICameraDriver* m_u3vDriver;
+    // UVC (Qt5 Multimedia QCamera)
+    ICameraDriver* m_uvcDriver;
+
+    // description → driver 매핑 (열거 시 채워짐)
+    QMap<QString, ICameraDriver*> m_driverMap;
 };

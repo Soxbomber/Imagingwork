@@ -9,6 +9,7 @@
 #include <QPixmap>
 #include <QScrollBar>
 #include <QCloseEvent>
+#include <QPixmapCache>
 
 // ── ImageGraphicsView ──────────────────────────────────────────
 class ImageGraphicsView : public QGraphicsView {
@@ -19,6 +20,7 @@ public:
     void setImage(const QString& filePath);
     void fitImageInView();
     void resetZoom();
+    void clearImage();  // scene 초기화 + pixmap 메모리 해제
 
 public slots:
     void updateImage(QImage image);
@@ -48,17 +50,17 @@ public:
     void    setImage(const QString& filePath);
     void    fitImageInView();
     void    resetZoom();
+    void    clearImage();       // 이전 이미지 즉시 제거 및 메모리 해제
+    void    acceptFrames();     // clearImage() 후 새 프레임 수신 재개
     QString description() const;
 
 public slots:
     void UpdateImageViewer(QImage image);
 
 signals:
-    // 창이 닫힐 때 description을 전달 → 외부에서 카메라 정지 처리
     void viewerClosed(const QString& description);
 
 protected:
-    // X 버튼 클릭 시 viewerClosed 시그널 emit 후 닫기
     void closeEvent(QCloseEvent* event) override;
 
 private slots:
@@ -68,4 +70,5 @@ private:
     ImageGraphicsView* m_view;
     QString            m_description;
     bool               m_firstFrame{ true };
+    bool               m_accepting { true };  // false이면 UpdateImageViewer 무시
 };

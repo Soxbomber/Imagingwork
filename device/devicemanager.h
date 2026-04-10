@@ -34,6 +34,10 @@ public:
         }
     }
 
+    // 목록 직접 조작 (다중 드라이버 지원)
+    void clearDeviceList() { m_deviceinfoList.clear(); }
+    void addDevice(const DeviceInfo& di) { m_deviceinfoList.append(di); }
+
 signals:
     void deviceLaunched(const DeviceInfo& deviceinfo);
     void deviceConnectionChanged(const DeviceInfo& deviceinfo);

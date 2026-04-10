@@ -12,37 +12,68 @@ Imagingwork::Imagingwork(QWidget* parent)
             this,         &Imagingwork::onCamButtonClicked);
 }
 
-Imagingwork::~Imagingwork() {}
-
-// ── 슬롯 구현 ────────────────────────────────────────────────────────────────
-
-void Imagingwork::onDeviceReadyToLaunch(const DeviceInfo& deviceinfo, ICameraDriver* camera)
+Imagingwork::~Imagingwork()
 {
-    // ① 뷰어 dock 생성 (중복이면 기존 dock 반환)
+    // closeEvent가 호출되지 않는 경우(delete window 등)를 위한 안전망
+    // m_stopped 플래그로 중복 정리 방지
+    stopAllCameras();
+}
+
+// ── 내부 정리 헬퍼 ────────────────────────────────────────────────────────────
+void Imagingwork::stopAllCameras()
+{
+    if (m_stopped) return;
+    m_stopped = true;
+
+    if (ui.m_subWindow) {
+        // U3V + UVC 드라이버 모두 정지
+        if (auto* u3v = ui.m_subWindow->getCamera())
+            u3v->StopAll();
+        // UVC는 getDriverFor로 접근 불가하므로 CamSubWindow 소멸자에서 처리
+    }
+
+    for (auto* viewer : ui.m_imageViewers)
+        if (viewer) viewer->clearImage();
+}
+
+// ── 슬롯 ─────────────────────────────────────────────────────────────────────
+
+void Imagingwork::onDeviceReadyToLaunch(const DeviceInfo& deviceinfo,
+                                         ICameraDriver* camera)
+{
+    // ① 뷰어 dock 생성 (중복이면 기존 dock 반환 + clearImage)
     ImageViewerDock* dock = ui.getOrCreateViewer(this, deviceinfo);
     if (!dock) return;
 
-    // ② dock이 준비된 상태에서 StartGrabbing 호출
+    // ② 프레임 수신 재개 (getOrCreateViewer 내부 clearImage 후 차단됨)
+    dock->acceptFrames();
+
+    // ③ 스트리밍 시작
     bool grabbing = camera->StartGrabbing(deviceinfo, dock);
 
-    // ③ 뷰어 창 닫힘 → dock의 closeEvent → viewerClosed 시그널
-    //    → onViewerClosed 슬롯에서 카메라 정지 처리
-    connect(dock,  &ImageViewerDock::viewerClosed,
-            this,  &Imagingwork::onViewerClosed);
+    // ④ 뷰어가 닫힐 때 → 카메라 정지
+    // connect 중복 방지: 동일 dock에 이미 연결됐으면 재연결 안 함
+    connect(dock, &ImageViewerDock::viewerClosed,
+            this, &Imagingwork::onViewerClosed,
+            Qt::UniqueConnection);
 
-    // ④ DeviceManager 상태 갱신 및 UI 갱신
+    // ⑤ DeviceManager 상태 갱신
     ui.m_deviceManager->setDeviceConnected(deviceinfo.description, !grabbing);
     emit ui.m_deviceManager->deviceLaunched(deviceinfo);
 }
 
 void Imagingwork::onViewerClosed(const QString& description)
 {
-    // dock의 closeEvent에서 호출됨
-    ICameraDriver* camera = ui.m_subWindow->getCamera();
+    // description으로 해당 드라이버를 찾아 정지
+    // (U3V와 UVC가 각각 다른 드라이버를 사용)
+    ICameraDriver* camera = ui.m_subWindow
+                            ? ui.m_subWindow->getDriverFor(description)
+                            : nullptr;
+    if (!camera)
+        camera = ui.m_subWindow ? ui.m_subWindow->getCamera() : nullptr;
     if (camera)
         camera->StopGrabbing(description);
 
-    // DeviceManager에 카메라가 다시 열릴 수 있는 상태로 갱신
     ui.m_deviceManager->setDeviceConnected(description, true);
 }
 
@@ -82,10 +113,13 @@ void Imagingwork::loadImage(int viewerIndex, QImage image)
 
 void Imagingwork::closeEvent(QCloseEvent* event)
 {
-    // 앱 종료 시 열린 모든 카메라 정리
-    if (ui.m_subWindow && ui.m_subWindow->getCamera())
-        ui.m_subWindow->getCamera()->StopAll();
+    // 메인 윈도우 닫기:
+    //  1. 카메라 스트림/USB 즉시 정리 (스레드 join 포함)
+    //  2. dock들이 WA_DeleteOnClose로 소멸하기 전에 완료되어야 함
+    stopAllCameras();
 
+    // 부모 클래스 처리 → 자식 위젯(dock 등) 닫기 → app.exec() 종료
+    event->accept();
     QMainWindow::closeEvent(event);
 }
 
@@ -102,13 +136,13 @@ void Imagingwork::resizeEvent(QResizeEvent* event)
 
     if (dockedViewers.isEmpty()) return;
 
-    int camWidth = (ui.m_subWindow
-                    && !ui.m_subWindow->isHidden()
-                    && !ui.m_subWindow->isFloating())
-                   ? ui.m_subWindow->width() : 0;
+    const int camWidth = (ui.m_subWindow
+                          && !ui.m_subWindow->isHidden()
+                          && !ui.m_subWindow->isFloating())
+                         ? ui.m_subWindow->width() : 0;
 
-    int availableWidth  = width() - camWidth;
-    int availableHeight = height()
+    const int availableWidth  = width() - camWidth;
+    const int availableHeight = height()
         - (menuBar()   ? menuBar()->height()   : 0)
         - (statusBar() ? statusBar()->height() : 0)
         - (ui.mainToolBar ? ui.mainToolBar->height() : 0);

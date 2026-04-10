@@ -1,313 +1,374 @@
 #include "ArvU3vStream.h"
-#include <QThread>
+#include "DebayerAVX2.h"
 #include <QDebug>
 #include <cstring>
-#include <vector>
 #include <algorithm>
 
-ArvU3vStream::ArvU3vStream(ArvU3vDevice* device,
-                             const ArvStreamParams& params,
-                             QObject* parent)
+// ============================================================
+// 생성자: N개 버퍼 pre-allocate (Aravis create_buffers 포팅)
+// ============================================================
+ArvU3vStream::ArvU3vStream(ArvU3vDevice*          device,
+                            const ArvStreamParams& params,
+                            QObject*               parent)
     : QObject(parent)
     , m_device(device)
     , m_params(params)
-{}
+{
+    const size_t bufSize = params.reqPayloadSize > 0
+                           ? static_cast<size_t>(params.reqPayloadSize)
+                           : static_cast<size_t>(params.payloadSize);
+
+    // N개 버퍼 사전 할당 (Aravis: DSAllocAndAnnounceBuffer × N)
+    m_freePool  = std::make_unique<FramePool>(N_BUFFERS, bufSize);
+    m_fullQueue = std::make_unique<FrameQueue>();
+    m_fullQueue->setPool(m_freePool.get());
+
+    qDebug("ArvU3vStream: %d buffers pre-allocated, each %zu bytes",
+           N_BUFFERS, bufSize);
+}
+
+ArvU3vStream::~ArvU3vStream()
+{
+    Stop();
+    // std::thread join은 Start() 내부에서 처리
+}
 
 void ArvU3vStream::Stop()
 {
     m_running = false;
+    m_fullQueue->stop();   // 변환 스레드의 popWait 해제
 }
 
 // ============================================================
-// Start() - Aravis sync stream thread 포팅
+// Start() — USB 수신 스레드 (QThread::started 에 연결)
 //
-// Aravis arv_uv_stream_thread_sync():
-//   1. leader 읽기 -> ArvUvspLeader magic 확인 + W/H/pfnc 추출
-//   2. payload를 payloadCount 번 전송 크기(payloadSize)씩 읽기
-//   3. transfer1Size > 0 이면 나머지 읽기
-//   4. trailer 읽기 (discard)
-//   5. 이미지 변환 emit
+// Aravis _loop() 포팅:
+//   1. FreePool에서 빈 버퍼 획득
+//   2. bulkRead(leader + payload + trailer) → raw 데이터 채움
+//   3. FullQueue push → 변환 스레드가 처리
+//   4. 즉시 다음 수신 (변환 대기 없음)
 // ============================================================
 void ArvU3vStream::Start()
 {
     qDebug("ArvU3vStream::Start() "
-           "reqPayload=%llu pSize=%u pCount=%u t1=%u "
-           "leader=%u trailer=%u",
+           "reqPayload=%llu pSize=%u pCount=%u t1=%u leader=%u trailer=%u",
            (unsigned long long)m_params.reqPayloadSize,
            m_params.payloadSize, m_params.payloadCount,
-           m_params.transfer1Size,
-           m_params.leaderSize, m_params.trailerSize);
+           m_params.transfer1Size, m_params.leaderSize, m_params.trailerSize);
 
     if (m_params.leaderSize == 0 || m_params.payloadSize == 0) {
-        emit errorOccurred("Invalid stream params (leader/payload size = 0)");
+        emit errorOccurred("Invalid stream params");
         return;
     }
 
-    std::vector<uint8_t> leaderBuf(m_params.leaderSize);
-    std::vector<uint8_t> trailerBuf(m_params.trailerSize > 0
-                                    ? m_params.trailerSize : 256);
-    std::vector<uint8_t> payloadBuf(m_params.reqPayloadSize > 0
-                                    ? static_cast<size_t>(m_params.reqPayloadSize)
-                                    : m_params.payloadSize);
+    // convertLoop를 std::thread로 실행
+    // Qt signal emission은 thread-safe이므로 OK
+    // (emit ImageReceived → QueuedConnection → UI 스레드)
+    std::thread convertThr([this]{ convertLoop(); });
 
-    int frameCount = 0;
+    // ── 수신 루프 (Aravis _loop의 수신 파트) ─────────────────────────────
+    std::vector<uint8_t> leaderBuf(m_params.leaderSize);
+    std::vector<uint8_t> trailerBuf(
+        m_params.trailerSize > 0 ? m_params.trailerSize : 256);
+
+    int frameCount = 0, dropCount = 0;
 
     while (m_running) {
-        // ── 1. Leader ─────────────────────────────────────────────────────
+        // ── 1. Leader 수신 ───────────────────────────────────────────────
         int xfer = 0;
         if (!m_device->bulkReadData(leaderBuf.data(),
                                      static_cast<int>(leaderBuf.size()),
                                      xfer, 5000)) {
             if (!m_running) break;
-            qDebug("ArvU3vStream: leader read timeout/error");
-            QThread::msleep(5);
+            QThread::msleep(2);
             continue;
         }
-
-        if (xfer < static_cast<int>(sizeof(ArvUvspLeader))) {
-            qWarning("ArvU3vStream: leader too short (%d)", xfer);
-            continue;
-        }
+        if (xfer < static_cast<int>(sizeof(ArvUvspLeader))) continue;
 
         const auto* leader =
             reinterpret_cast<const ArvUvspLeader*>(leaderBuf.data());
-
-        if (leader->header.magic != ARV_UVSP_LEADER_MAGIC) {
-            qWarning("ArvU3vStream: bad leader magic 0x%08X",
-                     leader->header.magic);
-            continue;
-        }
-
-        if (leader->infos.payload_type != ARV_UVSP_PAYLOAD_TYPE_IMAGE) {
-            qWarning("ArvU3vStream: non-image payload 0x%04X",
-                     leader->infos.payload_type);
-            // drain remaining transfers anyway
-        }
+        if (leader->header.magic != ARV_UVSP_LEADER_MAGIC)  continue;
+        if (leader->infos.payload_type != ARV_UVSP_PAYLOAD_TYPE_IMAGE) continue;
 
         const int      W    = static_cast<int>(leader->infos.width);
         const int      H    = static_cast<int>(leader->infos.height);
         const uint32_t pfnc = leader->infos.pixel_format;
+        const uint64_t fid  = leader->header.frame_id;
+        if (W <= 0 || H <= 0) continue;
 
-        if (W <= 0 || H <= 0) {
-            qWarning("ArvU3vStream: leader invalid size %dx%d", W, H);
+        // ── 2. FreePool에서 버퍼 획득 ────────────────────────────────────
+        // (Aravis: arv_stream_pop_input_buffer)
+        auto fb = m_freePool->tryPop();
+        if (!fb) {
+            // 모든 버퍼가 변환 중 → 이 프레임 드롭 (payload 읽어서 버림)
+            ++dropCount;
+            const size_t sz =
+                static_cast<size_t>(m_params.reqPayloadSize);
+            std::vector<uint8_t> dummy(sz);
+            size_t rx = 0;
+            for (uint32_t p = 0;
+                 p < m_params.payloadCount && m_running; ++p) {
+                int cx = 0;
+                m_device->bulkReadData(
+                    dummy.data() + rx,
+                    static_cast<int>(m_params.payloadSize), cx, 5000);
+                rx += static_cast<size_t>(cx);
+                if (cx < static_cast<int>(m_params.payloadSize)) break;
+            }
+            if (m_params.transfer1Size > 0 && rx < sz) {
+                int cx = 0;
+                m_device->bulkReadData(
+                    dummy.data() + rx,
+                    static_cast<int>(m_params.transfer1Size), cx, 5000);
+            }
+            int t = 0;
+            m_device->bulkReadData(trailerBuf.data(),
+                static_cast<int>(trailerBuf.size()), t, 2000);
             continue;
         }
 
-        if (frameCount == 0)
-            qDebug("ArvU3vStream: first frame %dx%d pfnc=0x%08X "
-                   "fid=%llu",
-                   W, H, pfnc,
-                   (unsigned long long)leader->header.frame_id);
-
-        // ── 2. Payload chunks ─────────────────────────────────────────────
-        // Aravis: reads payloadCount full chunks then transfer1
-        size_t totalReceived = 0;
-        const size_t expectedTotal =
+        // ── 3. Payload 수신 → fb->data 에 직접 기록 ──────────────────────
+        const size_t expected =
             static_cast<size_t>(m_params.reqPayloadSize);
 
-        if (payloadBuf.size() < expectedTotal)
-            payloadBuf.resize(expectedTotal);
+        // 버퍼 크기 보장
+        if (fb->data.size() < expected) fb->data.resize(expected);
 
-        bool frameOk = true;
+        size_t received = 0;
+        for (uint32_t p = 0;
+             p < m_params.payloadCount && m_running; ++p) {
+            const int chunk = static_cast<int>(m_params.payloadSize);
+            int cx = 0;
+            m_device->bulkReadData(fb->data.data() + received,
+                                    chunk, cx, 5000);
+            received += static_cast<size_t>(cx);
+            if (cx < chunk) break;
+        }
 
-        for (uint32_t p = 0; p < m_params.payloadCount && m_running; ++p) {
-            const int chunkLen = static_cast<int>(m_params.payloadSize);
-            int chunkXfer = 0;
+        if (!m_running) {
+            m_freePool->push(std::move(fb));
+            break;
+        }
+
+        if (m_params.transfer1Size > 0 && received < expected) {
+            int cx = 0;
             m_device->bulkReadData(
-                payloadBuf.data() + totalReceived,
-                chunkLen, chunkXfer, 5000);
-            totalReceived += static_cast<size_t>(chunkXfer);
-            if (chunkXfer < chunkLen) {
-                // short packet: end of data
-                break;
-            }
+                fb->data.data() + received,
+                static_cast<int>(m_params.transfer1Size), cx, 5000);
+            received += static_cast<size_t>(cx);
         }
 
-        // transfer1 (remainder, Aravis: si_transfer1_size)
-        if (m_running && m_params.transfer1Size > 0
-            && totalReceived < expectedTotal) {
-            const int t1 = static_cast<int>(m_params.transfer1Size);
-            int t1Xfer = 0;
-            m_device->bulkReadData(
-                payloadBuf.data() + totalReceived,
-                t1, t1Xfer, 5000);
-            totalReceived += static_cast<size_t>(t1Xfer);
+        // ── 4. Trailer 수신 ───────────────────────────────────────────────
+        { int t = 0; m_device->bulkReadData(trailerBuf.data(),
+            static_cast<int>(trailerBuf.size()), t, 2000); }
+
+        // ── 5. 메타데이터 기록 후 FullQueue push ─────────────────────────
+        // (Aravis: arv_stream_push_output_buffer)
+        fb->width   = W;
+        fb->height  = H;
+        fb->pfnc    = pfnc;
+        fb->frameId = fid;
+
+        m_fullQueue->push(std::move(fb));
+        ++frameCount;
+    }
+
+    // ── 수신 종료: 변환 스레드 종료 대기 ────────────────────────────────
+    m_fullQueue->stop();
+    if (convertThr.joinable()) convertThr.join();
+
+    qDebug("ArvU3vStream: stopped recv=%d dropped=%d "
+           "queueDropped=%llu",
+           frameCount, dropCount,
+           (unsigned long long)m_fullQueue->droppedCount());
+}
+
+// ============================================================
+// convertLoop() — 변환 스레드
+// (Aravis: _loop의 변환+콜백 파트)
+//
+//   FullQueue에서 채워진 버퍼 꺼냄
+//   → AVX2 debayer → QImage
+//   → emit ImageReceived (Qt::AutoConnection → UI 스레드)
+//   → FreePool 반환 (Aravis: arv_stream_pop_buffer 후 재큐잉)
+// ============================================================
+void ArvU3vStream::convertLoop()
+{
+    qDebug("ArvU3vStream::convertLoop started");
+    int converted = 0;
+
+    while (true) {
+        // FullQueue에서 버퍼 대기 (최대 200ms)
+        auto fb = m_fullQueue->popWait(200);
+        if (!fb) {
+            // 타임아웃: m_running 확인
+            if (!m_running) break;
+            continue;
         }
 
-        if (!m_running) break;
-
-        // ── 3. Trailer ────────────────────────────────────────────────────
-        {
-            int tXfer = 0;
-            m_device->bulkReadData(trailerBuf.data(),
-                                    static_cast<int>(trailerBuf.size()),
-                                    tXfer, 2000);
-            // Trailer magic check (informational only)
-            if (tXfer >= static_cast<int>(sizeof(ArvUvspTrailer))) {
-                const auto* tr =
-                    reinterpret_cast<const ArvUvspTrailer*>(trailerBuf.data());
-                if (tr->header.magic != ARV_UVSP_TRAILER_MAGIC)
-                    qDebug("ArvU3vStream: unexpected trailer magic 0x%08X",
-                           tr->header.magic);
-            }
+        // QImage 재사용: 해상도/포맷이 같으면 재할당 없이 기존 버퍼 사용
+        // (5MP BGRA = 20MB → 매 프레임 malloc 방지)
+        const int W = fb->width, H = fb->height;
+        if (fb->outImage.isNull()
+            || fb->outImage.width()  != W
+            || fb->outImage.height() != H
+            || fb->outImage.format() != QImage::Format_ARGB32) {
+            fb->outImage = QImage(W, H, QImage::Format_ARGB32);
         }
 
-        // ── 4. Convert and emit ───────────────────────────────────────────
-        QImage img = convertPixels(payloadBuf.data(), W, H, pfnc);
-        if (!img.isNull()) {
-            ++frameCount;
-            emit ImageReceived(std::move(img));
-        } else {
-            qWarning("ArvU3vStream: convertPixels returned null "
-                     "%dx%d pfnc=0x%08X", W, H, pfnc);
+        // AVX2 debayer → BGRA32 (non-temporal store)
+        convertPixelsBGRA(fb->data.data(), W, H, fb->pfnc,
+                           fb->outImage.bits());
+
+        // emit: QImage는 copy-on-write이므로 bits()가 공유됨
+        // → 수신 스레드가 fb를 재사용하기 전에 UI가 QPixmap 변환 완료해야 함
+        // 안전하게: emit 전에 detach (내부 복사 한 번)
+        QImage emitImg = fb->outImage.copy();   // detach → 독립 버퍼
+        // fb를 즉시 반환
+        m_freePool->push(std::move(fb));
+
+        if (!emitImg.isNull()) {
+            ++converted;
+            emit ImageReceived(std::move(emitImg));
         }
     }
 
-    qDebug("ArvU3vStream: stopped (total frames=%d)", frameCount);
+    qDebug("ArvU3vStream::convertLoop stopped converted=%d", converted);
 }
 
-// ---- Pixel format conversion ------------------------------------
-
-QImage ArvU3vStream::convertPixels(const uint8_t* src,
-                                    int w, int h, uint32_t pfnc) const
+// ============================================================
+// 픽셀 변환 (BGRA32 직접 출력)
+// ============================================================
+void ArvU3vStream::convertPixelsBGRA(const uint8_t* src,
+                                      int w, int h,
+                                      uint32_t pfnc,
+                                      uint8_t* dstBits) const
 {
+    static const bool useAVX2 = debayerAVX2Supported();
+
     switch (pfnc) {
-    case PFNC_Mono8: {
-        QImage img(w, h, QImage::Format_Grayscale8);
-        std::memcpy(img.bits(), src,
-                    static_cast<size_t>(img.sizeInBytes()));
-        return img;
-    }
-    case PFNC_Mono10:
-    case PFNC_Mono12: {
-        QImage img(w, h, QImage::Format_Grayscale8);
-        const uint16_t* s16 = reinterpret_cast<const uint16_t*>(src);
-        uint8_t* dst = img.bits();
-        const int shift = (pfnc == PFNC_Mono10) ? 2 : 4;
-        for (int i = 0; i < w * h; ++i)
-            dst[i] = static_cast<uint8_t>(s16[i] >> shift);
-        return img;
-    }
-    case PFNC_BayerRG8:
-    case PFNC_BayerGR8:
-    case PFNC_BayerGB8:
-    case PFNC_BayerBG8:
-        return debayerBilinear(src, w, h, pfnc);
-    case PFNC_RGB8Packed: {
-        QImage img(w, h, QImage::Format_RGB888);
-        std::memcpy(img.bits(), src,
-                    static_cast<size_t>(img.sizeInBytes()));
-        return img;
-    }
-    case PFNC_BGR8Packed: {
-        QImage img(w, h, QImage::Format_RGB888);
-        std::memcpy(img.bits(), src,
-                    static_cast<size_t>(img.sizeInBytes()));
-        return img.rgbSwapped();
-    }
-    case PFNC_YUV422_8_UYVY:
-    case PFNC_YUV422_8:
-        return yuv422ToRgb(src, w, h);
-    default:
-        qWarning("ArvU3vStream: unknown pfnc 0x%08X -> Mono8 fallback", pfnc);
-        QImage img(w, h, QImage::Format_Grayscale8);
-        std::memcpy(img.bits(), src,
-                    static_cast<size_t>(img.sizeInBytes()));
-        return img;
-    }
-}
-
-QImage ArvU3vStream::debayerBilinear(const uint8_t* src,
-                                      int w, int h, uint32_t pfnc) const
-{
-    // Row 0 / Col 0 first pixel:
-    //   BayerRG: R G R G ...   BayerGR: G R G R ...
-    //            G B G B ...            B G B G ...
-    //   BayerGB: G B G B ...   BayerBG: B G B G ...
-    //            R G R G ...            G R G R ...
-    const bool r0c0_isR  = (pfnc == PFNC_BayerRG8);
-    const bool r0c0_isGR = (pfnc == PFNC_BayerGR8);
-    const bool r0c0_isGB = (pfnc == PFNC_BayerGB8);
-    // BayerBG8: r0c0 = B
-
-    auto clampX = [&](int x) -> int { return std::max<int>(0, std::min<int>(x, w-1)); };
-    auto clampY = [&](int y) -> int { return std::max<int>(0, std::min<int>(y, h-1)); };
-    auto px     = [&](int x, int y) -> uint8_t {
-        return src[clampY(y)*w + clampX(x)];
-    };
-
-    QImage dst(w, h, QImage::Format_RGB888);
-    for (int y = 0; y < h; ++y) {
-        uint8_t* row = dst.scanLine(y);
-        for (int x = 0; x < w; ++x) {
-            uint8_t r, g, b;
-            const bool er = (y % 2 == 0);
-            const bool ec = (x % 2 == 0);
-
-            // Determine which color is at (y,x) based on pattern
-            bool atR, atG, atB;
-            if (r0c0_isR) {
-                atR = (er && ec); atB = (!er && !ec);
-            } else if (r0c0_isGR) {
-                atR = (er && !ec); atB = (!er && ec);
-            } else if (r0c0_isGB) {
-                atR = (!er && ec); atB = (er && !ec);
-            } else { // BayerBG
-                atR = (!er && !ec); atB = (er && ec);
-            }
-            atG = !atR && !atB;
-
-            if (atR) {
-                r = px(x,y);
-                g = (px(x-1,y)+px(x+1,y)+px(x,y-1)+px(x,y+1)) / 4;
-                b = (px(x-1,y-1)+px(x+1,y-1)+
-                     px(x-1,y+1)+px(x+1,y+1)) / 4;
-            } else if (atB) {
-                b = px(x,y);
-                g = (px(x-1,y)+px(x+1,y)+px(x,y-1)+px(x,y+1)) / 4;
-                r = (px(x-1,y-1)+px(x+1,y-1)+
-                     px(x-1,y+1)+px(x+1,y+1)) / 4;
-            } else {
-                // Green pixel: neighbor direction determines R/B
-                g = px(x,y);
-                if ((er && ec) || (!er && !ec)) {
-                    // G in R row: R left/right, B up/down
-                    r = (px(x-1,y) + px(x+1,y)) / 2;
-                    b = (px(x,y-1) + px(x,y+1)) / 2;
-                } else {
-                    // G in B row: B left/right, R up/down
-                    b = (px(x-1,y) + px(x+1,y)) / 2;
-                    r = (px(x,y-1) + px(x,y+1)) / 2;
+    // ── Bayer → BGRA (AVX2 non-temporal store) ──────────────────────────
+    case PFNC_BayerRG8: case PFNC_BayerGR8:
+    case PFNC_BayerGB8: case PFNC_BayerBG8:
+        if (useAVX2) {
+            debayerAVX2_BGRA(src, dstBits, w, h, pfnc);
+        } else {
+            // 스칼라 폴백
+            auto cl = [](int v, int mx){ return v<0?0:v>=mx?mx-1:v; };
+            auto P  = [&](int x, int y) -> int {
+                return src[cl(y,h)*w + cl(x,w)]; };
+            for (int y = 0; y < h; ++y) {
+                uint32_t* row = reinterpret_cast<uint32_t*>(dstBits + y*w*4);
+                for (int x = 0; x < w; ++x) {
+                    const bool er=(y%2==0), ec=(x%2==0);
+                    bool rawR=(pfnc==PFNC_BayerRG8)?(er&&ec)
+                              :(pfnc==PFNC_BayerGR8)?(er&&!ec)
+                              :(pfnc==PFNC_BayerGB8)?(!er&&ec):(!er&&!ec);
+                    bool rawB=(pfnc==PFNC_BayerRG8)?(!er&&!ec)
+                              :(pfnc==PFNC_BayerGR8)?(!er&&ec)
+                              :(pfnc==PFNC_BayerGB8)?(er&&!ec):(er&&ec);
+                    uint8_t r,g,b;
+                    if (rawR) {
+                        r=src[y*w+x];
+                        g=(P(x-1,y)+P(x+1,y)+P(x,y-1)+P(x,y+1))/4;
+                        b=(P(x-1,y-1)+P(x+1,y-1)+P(x-1,y+1)+P(x+1,y+1))/4;
+                    } else if (rawB) {
+                        b=src[y*w+x];
+                        g=(P(x-1,y)+P(x+1,y)+P(x,y-1)+P(x,y+1))/4;
+                        r=(P(x-1,y-1)+P(x+1,y-1)+P(x-1,y+1)+P(x+1,y+1))/4;
+                    } else {
+                        g=src[y*w+x];
+                        bool gInR=(pfnc==PFNC_BayerRG8||pfnc==PFNC_BayerGB8)
+                                  ?(er==ec):(er!=ec);
+                        if(gInR){r=(P(x-1,y)+P(x+1,y))/2;b=(P(x,y-1)+P(x,y+1))/2;}
+                        else    {b=(P(x-1,y)+P(x+1,y))/2;r=(P(x,y-1)+P(x,y+1))/2;}
+                    }
+                    row[x] = 0xFF000000u
+                           | (static_cast<uint32_t>(r) << 16)
+                           | (static_cast<uint32_t>(g) <<  8)
+                           |  static_cast<uint32_t>(b);
                 }
             }
-            row[x*3]=r; row[x*3+1]=g; row[x*3+2]=b;
         }
-    }
-    return dst;
-}
+        return;
 
-QImage ArvU3vStream::yuv422ToRgb(const uint8_t* src,
-                                   int w, int h) const
-{
-    QImage dst(w, h, QImage::Format_RGB888);
-    auto clamp = [](int v) -> uint8_t {
-        return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v);
-    };
-    for (int y = 0; y < h; ++y) {
-        const uint8_t* s = src + y * w * 2;
-        uint8_t* d = dst.scanLine(y);
-        for (int x = 0; x < w; x += 2, s += 4, d += 6) {
-            const int u  = s[0] - 128;
-            const int y0 = s[1];
-            const int v  = s[2] - 128;
-            const int y1 = s[3];
-            d[0]=clamp(y0+1402*v/1000);
-            d[1]=clamp(y0- 344*u/1000 - 714*v/1000);
-            d[2]=clamp(y0+1772*u/1000);
-            d[3]=clamp(y1+1402*v/1000);
-            d[4]=clamp(y1- 344*u/1000 - 714*v/1000);
-            d[5]=clamp(y1+1772*u/1000);
+    // ── Mono8 → ARGB32 ──────────────────────────────────────────────────
+    case PFNC_Mono8: {
+        const uint32_t* end32 = reinterpret_cast<const uint32_t*>(dstBits) + w*h;
+        uint32_t* d = reinterpret_cast<uint32_t*>(dstBits);
+        for (int i = 0; i < w*h; ++i) {
+            const uint8_t v = src[i];
+            d[i] = 0xFF000000u
+                 | (static_cast<uint32_t>(v) << 16)
+                 | (static_cast<uint32_t>(v) <<  8)
+                 |  static_cast<uint32_t>(v);
         }
+        (void)end32;
+        return;
     }
-    return dst;
+
+    // ── Mono10/12 → ARGB32 ──────────────────────────────────────────────
+    case PFNC_Mono10: case PFNC_Mono12: {
+        const uint16_t* s16 = reinterpret_cast<const uint16_t*>(src);
+        const int shift = (pfnc == PFNC_Mono10) ? 2 : 4;
+        uint32_t* d = reinterpret_cast<uint32_t*>(dstBits);
+        for (int i = 0; i < w*h; ++i) {
+            const uint8_t v = static_cast<uint8_t>(s16[i] >> shift);
+            d[i] = 0xFF000000u
+                 | (static_cast<uint32_t>(v) << 16)
+                 | (static_cast<uint32_t>(v) <<  8)
+                 |  static_cast<uint32_t>(v);
+        }
+        return;
+    }
+
+    // ── RGB8 → ARGB32 ───────────────────────────────────────────────────
+    case PFNC_RGB8Packed: {
+        uint32_t* d = reinterpret_cast<uint32_t*>(dstBits);
+        for (int i = 0; i < w*h; ++i)
+            d[i] = 0xFF000000u
+                 | (static_cast<uint32_t>(src[i*3+0]) << 16)
+                 | (static_cast<uint32_t>(src[i*3+1]) <<  8)
+                 |  static_cast<uint32_t>(src[i*3+2]);
+        return;
+    }
+
+    // ── BGR8 → ARGB32 ───────────────────────────────────────────────────
+    case PFNC_BGR8Packed: {
+        uint32_t* d = reinterpret_cast<uint32_t*>(dstBits);
+        for (int i = 0; i < w*h; ++i)
+            d[i] = 0xFF000000u
+                 | (static_cast<uint32_t>(src[i*3+2]) << 16)
+                 | (static_cast<uint32_t>(src[i*3+1]) <<  8)
+                 |  static_cast<uint32_t>(src[i*3+0]);
+        return;
+    }
+
+    // ── YUV422 → ARGB32 ─────────────────────────────────────────────────
+    case PFNC_YUV422_8_UYVY: case PFNC_YUV422_8: {
+        auto clamp = [](int v) -> uint8_t {
+            return static_cast<uint8_t>(v<0?0:v>255?255:v); };
+        uint32_t* d = reinterpret_cast<uint32_t*>(dstBits);
+        for (int y = 0; y < h; ++y) {
+            const uint8_t* s = src + y*w*2;
+            uint32_t* row = d + y*w;
+            for (int x = 0; x < w; x+=2, s+=4, row+=2) {
+                const int u=s[0]-128,y0=s[1],v=s[2]-128,y1=s[3];
+                auto mk=[&](int yy)->uint32_t{
+                    return 0xFF000000u
+                        |(static_cast<uint32_t>(clamp(yy+1402*v/1000))<<16)
+                        |(static_cast<uint32_t>(clamp(yy-344*u/1000-714*v/1000))<<8)
+                        | static_cast<uint32_t>(clamp(yy+1772*u/1000));};
+                row[0]=mk(y0); row[1]=mk(y1);
+            }
+        }
+        return;
+    }
+
+    default:
+        // 알 수 없는 포맷: Grayscale 폴백
+        qWarning("ArvU3vStream: unknown pfnc 0x%08X", pfnc);
+        std::memset(dstBits, 0x80, static_cast<size_t>(w)*h*4);
+        return;
+    }
 }

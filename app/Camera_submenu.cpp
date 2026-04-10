@@ -1,12 +1,14 @@
 #include "Camera_submenu.h"
 #include "ArvCameraDriver.h"
+#include "UvcCameraDriver.h"
 
 CamSubWindow::CamSubWindow(QWidget* parent)
     : QDockWidget("Device List", parent)
     , m_deviceManager(nullptr)
     , m_listLayout(nullptr)
     , m_selectedWidget(nullptr)
-    , m_idscamera(nullptr)
+    , m_u3vDriver(nullptr)
+    , m_uvcDriver(nullptr)
 {
     setupUi();
     refreshDeviceListFromHardware();
@@ -17,7 +19,8 @@ CamSubWindow::CamSubWindow(DeviceManager* deviceManager, QWidget* parent)
     , m_deviceManager(deviceManager)
     , m_listLayout(nullptr)
     , m_selectedWidget(nullptr)
-    , m_idscamera(nullptr)
+    , m_u3vDriver(nullptr)
+    , m_uvcDriver(nullptr)
 {
     setupUi();
     refreshDeviceListFromHardware();
@@ -25,8 +28,19 @@ CamSubWindow::CamSubWindow(DeviceManager* deviceManager, QWidget* parent)
 
 CamSubWindow::~CamSubWindow()
 {
-    delete m_idscamera;
-    m_idscamera = nullptr;
+    delete m_u3vDriver; m_u3vDriver = nullptr;
+    delete m_uvcDriver; m_uvcDriver = nullptr;
+}
+
+ICameraDriver* CamSubWindow::getDriverFor(const QString& description) const
+{
+    return m_driverMap.value(description, nullptr);
+}
+
+ICameraDriver* CamSubWindow::getCamera() const
+{
+    // 하위 호환: U3V 드라이버 우선 반환
+    return m_u3vDriver ? m_u3vDriver : m_uvcDriver;
 }
 
 void CamSubWindow::setupUi()
@@ -36,7 +50,6 @@ void CamSubWindow::setupUi()
     mainLayout->setContentsMargins(4, 4, 4, 4);
     mainLayout->setSpacing(4);
 
-    // 도킹 패널 최소/기본 폭 설정
     setMinimumWidth(220);
     resize(260, height());
 
@@ -72,10 +85,21 @@ void CamSubWindow::refreshDeviceList()
         delete item;
     }
     m_selectedWidget = nullptr;
-
     if (!m_deviceManager) return;
 
+    QString curSection;
     for (const DeviceInfo& info : m_deviceManager->getDeviceList()) {
+        // 카메라 타입별 섹션 헤더 삽입
+        const bool isUvc = m_driverMap.value(info.description) == m_uvcDriver;
+        const QString section = isUvc ? "UVC Cameras" : "USB3 Vision Cameras";
+        if (section != curSection) {
+            curSection = section;
+            auto* lbl = new QLabel(section);
+            lbl->setStyleSheet(
+                "font-weight:bold; color:#888; padding:4px 2px 2px;");
+            m_listLayout->insertWidget(m_listLayout->count() - 1, lbl);
+        }
+
         auto* widget = new DeviceItemWidget(info, this);
         m_listLayout->insertWidget(m_listLayout->count() - 1, widget);
         connect(widget, &DeviceItemWidget::clicked,
@@ -89,13 +113,39 @@ void CamSubWindow::refreshDeviceListFromHardware()
 {
     if (!m_deviceManager) return;
 
-    // ArvCameraDriver: libusb + Aravis protocol
-    // No kernel driver install needed - just WinUSB via Zadig
-    if (!m_idscamera)
-        m_idscamera = new ArvCameraDriver();
+    m_driverMap.clear();
 
-    m_deviceManager->enumerateDevices(m_idscamera);
+    // ── 1. USB3 Vision (libusb + Aravis) ─────────────────────────────────
+    if (!m_u3vDriver)
+        m_u3vDriver = new ArvCameraDriver();
+
+    const auto u3vList = m_u3vDriver->EnumCameras();
+    for (const auto& di : u3vList)
+        m_driverMap[di.description] = m_u3vDriver;
+
+    // ── 2. UVC (Qt5 Multimedia) ───────────────────────────────────────────
+    if (!m_uvcDriver)
+        m_uvcDriver = new UvcCameraDriver();
+
+    const auto uvcList = m_uvcDriver->EnumCameras();
+    for (const auto& di : uvcList)
+        m_driverMap[di.description] = m_uvcDriver;
+
+    // ── DeviceManager에 합산 등록 ─────────────────────────────────────────
+    // U3V 먼저, UVC 다음 순서
+    QList<DeviceInfo> allDevices;
+    allDevices << u3vList << uvcList;
+
+    // DeviceManager를 직접 채움
+    // (enumerateDevices는 단일 드라이버용이라 여기서 직접 설정)
+    m_deviceManager->clearDeviceList();
+    for (const auto& di : allDevices)
+        m_deviceManager->addDevice(di);
+
     refreshDeviceList();
+
+    qDebug("CamSubWindow: %d U3V + %d UVC = %d total cameras",
+           u3vList.size(), uvcList.size(), allDevices.size());
 }
 
 void CamSubWindow::onDeviceClicked(DeviceItemWidget* selected)
@@ -115,7 +165,15 @@ void CamSubWindow::onDeviceClicked(DeviceItemWidget* selected)
 
 void CamSubWindow::onDeviceDoubleClicked(const DeviceInfo& deviceinfo)
 {
-    if (!m_idscamera) return;
     if (!deviceinfo.isOpenable) return;
-    emit deviceReadyToLaunch(deviceinfo, m_idscamera);
+
+    // description으로 해당 드라이버 찾기
+    ICameraDriver* driver = m_driverMap.value(deviceinfo.description, nullptr);
+    if (!driver) {
+        qWarning("CamSubWindow: no driver found for [%s]",
+                 qPrintable(deviceinfo.description));
+        return;
+    }
+
+    emit deviceReadyToLaunch(deviceinfo, driver);
 }
