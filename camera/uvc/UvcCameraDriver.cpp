@@ -237,17 +237,14 @@ bool UvcVideoSurface::writeToBuffer(const QVideoFrame& frame, QImage& buf)
     }
 
     case QVideoFrame::Format_Jpeg: {
+        // JPEG 디코딩은 QImage::fromData() 내부 처리 (AVX2 불가)
+        // 디코딩 결과 복사는 memcpy로 충분 (병목은 JPEG 디코딩 자체)
         QImage tmp=QImage::fromData(f.bits(),f.mappedBytes(),"JPEG");
         if (tmp.isNull()){ok=false;break;}
         if (tmp.format()!=QImage::Format_ARGB32)
             tmp=tmp.convertToFormat(QImage::Format_ARGB32);
         ensureBuffer(buf,tmp.width(),tmp.height());
-        if (useAVX2)
-            avx2_argb32_to_argb32(tmp.constBits(),
-                reinterpret_cast<uint32_t*>(buf.bits()),
-                tmp.width()*tmp.height());
-        else
-            std::memcpy(buf.bits(),tmp.constBits(),size_t(tmp.sizeInBytes()));
+        std::memcpy(buf.bits(),tmp.constBits(),size_t(tmp.sizeInBytes()));
         break;
     }
 
@@ -378,7 +375,7 @@ QList<DeviceInfo> UvcCameraDriver::EnumCameras()
                               ? info.deviceName() : info.description();
         const QString descr = info.deviceName();
         ctx->deviceinfo = { id++, name, descr, true };
-        ctx->deviceinfo.description = descr;
+        ctx->deviceinfo.serialnumber = descr;
 
         qDebug("UvcCameraDriver: found [%s]", qPrintable(name));
         result.append(ctx->deviceinfo);
@@ -394,7 +391,7 @@ bool UvcCameraDriver::StartGrabbing(const DeviceInfo& di,
     if (!dock) return false;
 
     for (auto& ctx : m_cameras) {
-        if (ctx->deviceinfo.description != di.description) continue;
+        if (ctx->deviceinfo.serialnumber != di.serialnumber) continue;
         if (!ctx->deviceinfo.isOpenable) return true;
 
         ctx->dock = dock;
@@ -443,14 +440,14 @@ bool UvcCameraDriver::StartGrabbing(const DeviceInfo& di,
     }
 
     qWarning("UvcCameraDriver: device not found [%s]",
-             qPrintable(di.description));
+             qPrintable(di.serialnumber));
     return false;
 }
 
-void UvcCameraDriver::StopGrabbing(const QString& description)
+void UvcCameraDriver::StopGrabbing(const QString& serialnumber)
 {
     for (auto& ctx : m_cameras) {
-        if (ctx->deviceinfo.description != description) continue;
+        if (ctx->deviceinfo.serialnumber != serialnumber) continue;
         stopCtx(*ctx);
         ctx->dock = nullptr;
         ctx->deviceinfo.isOpenable = true;

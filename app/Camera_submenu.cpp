@@ -1,7 +1,21 @@
 #include "Camera_submenu.h"
 #include "ArvCameraDriver.h"
 #include "UvcCameraDriver.h"
+#include "GigECameraDriver.h"
 
+// ── 드라이버별 섹션명 ─────────────────────────────────────────────────────────
+static QString sectionName(ICameraDriver* driver,
+                            ICameraDriver* u3v,
+                            ICameraDriver* uvc,
+                            ICameraDriver* gige)
+{
+    if (driver == u3v)   return "USB3 Vision Cameras";
+    if (driver == uvc)   return "UVC Cameras";
+    if (driver == gige)  return "GigE Vision Cameras";
+    return "Unknown";
+}
+
+// ── 생성자 ────────────────────────────────────────────────────────────────────
 CamSubWindow::CamSubWindow(QWidget* parent)
     : QDockWidget("Device List", parent)
     , m_deviceManager(nullptr)
@@ -9,6 +23,7 @@ CamSubWindow::CamSubWindow(QWidget* parent)
     , m_selectedWidget(nullptr)
     , m_u3vDriver(nullptr)
     , m_uvcDriver(nullptr)
+    , m_gigeDriver(nullptr)
 {
     setupUi();
     refreshDeviceListFromHardware();
@@ -21,6 +36,7 @@ CamSubWindow::CamSubWindow(DeviceManager* deviceManager, QWidget* parent)
     , m_selectedWidget(nullptr)
     , m_u3vDriver(nullptr)
     , m_uvcDriver(nullptr)
+    , m_gigeDriver(nullptr)
 {
     setupUi();
     refreshDeviceListFromHardware();
@@ -28,10 +44,12 @@ CamSubWindow::CamSubWindow(DeviceManager* deviceManager, QWidget* parent)
 
 CamSubWindow::~CamSubWindow()
 {
-    delete m_u3vDriver; m_u3vDriver = nullptr;
-    delete m_uvcDriver; m_uvcDriver = nullptr;
+    delete m_u3vDriver;  m_u3vDriver  = nullptr;
+    delete m_uvcDriver;  m_uvcDriver  = nullptr;
+    delete m_gigeDriver; m_gigeDriver = nullptr;
 }
 
+// ── API ───────────────────────────────────────────────────────────────────────
 ICameraDriver* CamSubWindow::getDriverFor(const QString& description) const
 {
     return m_driverMap.value(description, nullptr);
@@ -39,10 +57,19 @@ ICameraDriver* CamSubWindow::getDriverFor(const QString& description) const
 
 ICameraDriver* CamSubWindow::getCamera() const
 {
-    // 하위 호환: U3V 드라이버 우선 반환
-    return m_u3vDriver ? m_u3vDriver : m_uvcDriver;
+    if (m_u3vDriver)  return m_u3vDriver;
+    if (m_gigeDriver) return m_gigeDriver;
+    return m_uvcDriver;
 }
 
+void CamSubWindow::stopAllDrivers()
+{
+    if (m_u3vDriver)  m_u3vDriver->StopAll();
+    if (m_gigeDriver) m_gigeDriver->StopAll();
+    if (m_uvcDriver)  m_uvcDriver->StopAll();
+}
+
+// ── UI 구성 ───────────────────────────────────────────────────────────────────
 void CamSubWindow::setupUi()
 {
     QWidget*     content    = new QWidget(this);
@@ -77,6 +104,7 @@ void CamSubWindow::setupUi()
             this, &CamSubWindow::refreshDeviceListFromHardware);
 }
 
+// ── 목록 표시 갱신 ────────────────────────────────────────────────────────────
 void CamSubWindow::refreshDeviceList()
 {
     while (m_listLayout->count() > 1) {
@@ -89,9 +117,10 @@ void CamSubWindow::refreshDeviceList()
 
     QString curSection;
     for (const DeviceInfo& info : m_deviceManager->getDeviceList()) {
-        // 카메라 타입별 섹션 헤더 삽입
-        const bool isUvc = m_driverMap.value(info.description) == m_uvcDriver;
-        const QString section = isUvc ? "UVC Cameras" : "USB3 Vision Cameras";
+        ICameraDriver* drv = m_driverMap.value(info.serialnumber);
+        const QString section = sectionName(drv, m_u3vDriver,
+                                             m_uvcDriver, m_gigeDriver);
+
         if (section != curSection) {
             curSection = section;
             auto* lbl = new QLabel(section);
@@ -109,45 +138,50 @@ void CamSubWindow::refreshDeviceList()
     }
 }
 
+// ── 하드웨어 열거 ────────────────────────────────────────────────────────────
 void CamSubWindow::refreshDeviceListFromHardware()
 {
     if (!m_deviceManager) return;
 
     m_driverMap.clear();
 
-    // ── 1. USB3 Vision (libusb + Aravis) ─────────────────────────────────
+    // ── 1. USB3 Vision (libusb + Aravis, WinUSB 드라이버 필요) ───────────
     if (!m_u3vDriver)
         m_u3vDriver = new ArvCameraDriver();
-
     const auto u3vList = m_u3vDriver->EnumCameras();
     for (const auto& di : u3vList)
-        m_driverMap[di.description] = m_u3vDriver;
+        m_driverMap[di.serialnumber] = m_u3vDriver;
 
-    // ── 2. UVC (Qt5 Multimedia) ───────────────────────────────────────────
+    // ── 2. GigE Vision (GVCP/GVSP over UDP, 드라이버 불필요) ─────────────
+    if (!m_gigeDriver)
+        m_gigeDriver = new GigECameraDriver();
+    const auto gigeList = m_gigeDriver->EnumCameras();
+    for (const auto& di : gigeList)
+        m_driverMap[di.serialnumber] = m_gigeDriver;
+
+    // ── 3. UVC (Qt5 Multimedia, 표준 드라이버) ────────────────────────────
     if (!m_uvcDriver)
         m_uvcDriver = new UvcCameraDriver();
-
     const auto uvcList = m_uvcDriver->EnumCameras();
     for (const auto& di : uvcList)
-        m_driverMap[di.description] = m_uvcDriver;
+        m_driverMap[di.serialnumber] = m_uvcDriver;
 
-    // ── DeviceManager에 합산 등록 ─────────────────────────────────────────
-    // U3V 먼저, UVC 다음 순서
+    // ── DeviceManager 갱신: U3V → GigE → UVC 순서 ───────────────────────
     QList<DeviceInfo> allDevices;
-    allDevices << u3vList << uvcList;
+    allDevices << u3vList << gigeList << uvcList;
 
-    // DeviceManager를 직접 채움
-    // (enumerateDevices는 단일 드라이버용이라 여기서 직접 설정)
     m_deviceManager->clearDeviceList();
     for (const auto& di : allDevices)
         m_deviceManager->addDevice(di);
 
     refreshDeviceList();
 
-    qDebug("CamSubWindow: %d U3V + %d UVC = %d total cameras",
-           u3vList.size(), uvcList.size(), allDevices.size());
+    qDebug("CamSubWindow: %d U3V + %d GigE + %d UVC = %d total",
+           u3vList.size(), gigeList.size(),
+           uvcList.size(), allDevices.size());
 }
 
+// ── 이벤트 핸들러 ─────────────────────────────────────────────────────────────
 void CamSubWindow::onDeviceClicked(DeviceItemWidget* selected)
 {
     if (m_selectedWidget && m_selectedWidget != selected) {
@@ -167,11 +201,10 @@ void CamSubWindow::onDeviceDoubleClicked(const DeviceInfo& deviceinfo)
 {
     if (!deviceinfo.isOpenable) return;
 
-    // description으로 해당 드라이버 찾기
-    ICameraDriver* driver = m_driverMap.value(deviceinfo.description, nullptr);
+    ICameraDriver* driver = m_driverMap.value(deviceinfo.serialnumber, nullptr);
     if (!driver) {
         qWarning("CamSubWindow: no driver found for [%s]",
-                 qPrintable(deviceinfo.description));
+                 qPrintable(deviceinfo.serialnumber));
         return;
     }
 

@@ -223,9 +223,15 @@ void ArvU3vStream::convertLoop()
         // emit: QImage는 copy-on-write이므로 bits()가 공유됨
         // → 수신 스레드가 fb를 재사용하기 전에 UI가 QPixmap 변환 완료해야 함
         // 안전하게: emit 전에 detach (내부 복사 한 번)
-        QImage emitImg = fb->outImage.copy();   // detach → 독립 버퍼
-        // fb를 즉시 반환
-        m_freePool->push(std::move(fb));
+        // ── copy() 제거: swap으로 소유권 이전 ──────────────────────────
+        // copy() = 20MB malloc + memcpy → ~15-20ms (핵심 병목)
+        // swap() = 포인터 교환 = ~0ns
+        // fb->outImage → emitImg로 이전, fb는 null QImage
+        // 다음 프레임에서 fb->outImage를 새로 할당 (20MB malloc 1회)
+        QImage emitImg;
+        emitImg.swap(fb->outImage);   // fb->outImage = null
+
+        m_freePool->push(std::move(fb));  // fb 즉시 반환
 
         if (!emitImg.isNull()) {
             ++converted;

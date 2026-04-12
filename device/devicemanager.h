@@ -21,9 +21,9 @@ public:
         return m_deviceinfoList;
     }
 
-    void setDeviceConnected(const QString& description, bool openable) {
+    void setDeviceConnected(const QString& serialnumber, bool openable) {
         for (auto& deviceinfo : m_deviceinfoList) {
-            if (deviceinfo.description == description) {
+            if (deviceinfo.serialnumber == serialnumber) {
                 deviceinfo.isOpenable = openable;
                 //qDebug() << "setDeviceConnected:"
                 //    << deviceinfo.name

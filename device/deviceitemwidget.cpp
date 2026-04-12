@@ -45,7 +45,7 @@ DeviceItemWidget::DeviceItemWidget(const DeviceInfo& deviceinfo, QWidget* parent
     );
     nameLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
 
-    QLabel* descLabel = new QLabel(deviceinfo.description, this);
+    QLabel* descLabel = new QLabel(deviceinfo.serialnumber, this);
     descLabel->setStyleSheet(
         "background: transparent;"
         "font-size: 11px; color: #888;"

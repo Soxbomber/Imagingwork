@@ -21,6 +21,8 @@ public:
     ICameraDriver* getDriverFor(const QString& description) const;
     // 하위 호환: 첫 번째 드라이버 반환
     ICameraDriver* getCamera() const;
+    // 모든 드라이버의 모든 카메라 정지 (앱 종료 시)
+    void stopAllDrivers();
 
 signals:
     void deviceReadyToLaunch(const DeviceInfo& deviceinfo,
@@ -41,6 +43,8 @@ private:
     ICameraDriver* m_u3vDriver;
     // UVC (Qt5 Multimedia QCamera)
     ICameraDriver* m_uvcDriver;
+    // GigE Vision (GVCP/GVSP over UDP)
+    ICameraDriver* m_gigeDriver;
 
     // description → driver 매핑 (열거 시 채워짐)
     QMap<QString, ICameraDriver*> m_driverMap;

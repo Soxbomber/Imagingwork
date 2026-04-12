@@ -6,7 +6,7 @@
 struct DeviceInfo {
     int         id;
     QString     name;
-    QString     description;
+    QString     serialnumber;
     bool        isOpenable;
 };
 

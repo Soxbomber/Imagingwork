@@ -168,15 +168,22 @@ QByteArray ArvGenApiXml::decompressZip(const QByteArray& zipData)
 }
 
 // ============================================================
-// GenICam XML 파서 - 단일 패스
+// GenICam XML 완전 파서
+// Integer / Float / Enumeration / Command / IntReg / FloatReg 지원
 // ============================================================
 
-static bool isRegisterNode(const QString& tag)
+static bool isRegNode(const QString& tag)
 {
-    return tag == "IntReg"      || tag == "MaskedIntReg" ||
-           tag == "FloatReg"    || tag == "StringReg"    ||
-           tag == "StructReg"   || tag == "StructEntry"  ||
-           tag == "Register";
+    return tag == "IntReg"    || tag == "MaskedIntReg" ||
+           tag == "FloatReg"  || tag == "StringReg"    ||
+           tag == "StructReg" || tag == "Register";
+}
+
+static bool isFeatureNode(const QString& tag)
+{
+    return tag == "Integer"     || tag == "Float"   ||
+           tag == "Enumeration" || tag == "Command"  ||
+           tag == "Boolean"     || tag == "String";
 }
 
 ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
@@ -188,108 +195,186 @@ ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
     const char* data = xmlData.constData();
     int         size = xmlData.size();
     if (size >= 3 &&
-        static_cast<uint8_t>(data[0]) == 0xEF &&
-        static_cast<uint8_t>(data[1]) == 0xBB &&
-        static_cast<uint8_t>(data[2]) == 0xBF) {
-        data += 3; size -= 3;
-        qDebug("ArvGenApiXml: stripped UTF-8 BOM");
-    }
+        static_cast<uint8_t>(data[0])==0xEF &&
+        static_cast<uint8_t>(data[1])==0xBB &&
+        static_cast<uint8_t>(data[2])==0xBF)
+        { data += 3; size -= 3; }
 
-    // XML 시작 로깅
-    const QByteArray head(data, std::min(size, 80));
-    qDebug("ArvGenApiXml: XML head=[%s]", head.constData());
+    // ── 1패스: 모든 노드 수집 ────────────────────────────────────────────────
+    // 레지스터 정의 (IntReg/FloatReg 등)
+    struct RegDef {
+        uint64_t address  {};
+        uint32_t length   {4};
+        bool     bigEndian{false};
+        bool     hasAddr  {false};
+        bool     isFloat  {false}; // FloatReg
+    };
 
-    struct CmdDef { QString pValueRef; uint32_t cmdValue{1}; };
-    struct RegDef { uint64_t address{}; uint32_t length{4};
-                    bool bigEndian{false}; bool hasAddr{false}; };
+    // 피처 노드 임시 정의
+    struct FeatureDef {
+        QString         tag;       // "Integer","Float","Enumeration","Command"
+        QString         pValueRef; // → RegDef 또는 Converter 이름
+        double          minVal{};
+        double          maxVal{};
+        double          incVal{1.0};
+        QString         unit;
+        uint32_t        cmdValue{1};
+        QMap<QString, int64_t> enumEntries;
+        QString         curEntry;  // EnumEntry 처리 중
+    };
 
-    QMap<QString, CmdDef> commands;
-    QMap<QString, RegDef> regs;
+    QMap<QString, RegDef>     regs;
+    QMap<QString, FeatureDef> features;
 
     QXmlStreamReader xml(QByteArray::fromRawData(data, size));
 
-    QString curCmd, curReg;
-    bool    inCmd = false, inReg = false;
+    QString curName;
+    QString curTag;
+    bool    inFeature = false;
+    bool    inReg     = false;
+    bool    inEntry   = false;
+    QString entryName;
 
     while (!xml.atEnd()) {
-        const auto token = xml.readNext();
+        const auto tok = xml.readNext();
+        if (xml.hasError()) break;
 
-        if (xml.hasError()) {
-            qWarning("ArvGenApiXml: XML error line %lld: %s",
-                     (long long)xml.lineNumber(),
-                     qPrintable(xml.errorString()));
-            break;
-        }
-
-        if (token == QXmlStreamReader::StartElement) {
+        if (tok == QXmlStreamReader::StartElement) {
             const QString tag  = xml.name().toString();
             const QString name = xml.attributes().value("Name").toString();
 
-            if (tag == "Command" && !name.isEmpty()) {
-                curCmd = name; inCmd = true;
-                inReg  = false; curReg.clear();
-                commands[curCmd] = CmdDef{};
-            } else if (isRegisterNode(tag) && !name.isEmpty()) {
-                curReg = name; inReg = true;
-                inCmd  = false; curCmd.clear();
-                if (!regs.contains(curReg)) regs[curReg] = RegDef{};
-            } else if (inCmd) {
-                if (tag == "pValue") {
-                    commands[curCmd].pValueRef = xml.readElementText().trimmed();
-                } else if (tag == "CommandValue") {
-                    bool ok = false;
-                    uint32_t v = xml.readElementText().trimmed().toUInt(&ok,0);
-                    if (ok) commands[curCmd].cmdValue = v;
+            if (isFeatureNode(tag) && !name.isEmpty()) {
+                curName = name; curTag = tag;
+                inFeature = true; inReg = false; inEntry = false;
+                FeatureDef fd; fd.tag = tag;
+                features[curName] = fd;
+
+            } else if (isRegNode(tag) && !name.isEmpty()) {
+                curName = name; curTag = tag;
+                inReg = true; inFeature = false; inEntry = false;
+                if (!regs.contains(curName)) {
+                    RegDef rd;
+                    rd.isFloat = (tag == "FloatReg");
+                    regs[curName] = rd;
                 }
+
+            } else if (inFeature) {
+                auto& fd = features[curName];
+
+                if (tag == "EnumEntry" && !name.isEmpty()) {
+                    inEntry = true;
+                    entryName = name;
+                    fd.curEntry = name;
+                    fd.enumEntries[name] = 0; // 기본값
+
+                } else if (inEntry && tag == "Value") {
+                    bool ok; int64_t v = xml.readElementText().trimmed().toLongLong(&ok, 0);
+                    if (ok) features[curName].enumEntries[entryName] = v;
+
+                } else if (!inEntry) {
+                    if (tag == "pValue") {
+                        fd.pValueRef = xml.readElementText().trimmed();
+                    } else if (tag == "CommandValue") {
+                        bool ok; uint32_t v = xml.readElementText().trimmed().toUInt(&ok,0);
+                        if (ok) fd.cmdValue = v;
+                    } else if (tag == "Min") {
+                        bool ok; double v = xml.readElementText().trimmed().toDouble(&ok);
+                        if (ok) fd.minVal = v;
+                    } else if (tag == "Max") {
+                        bool ok; double v = xml.readElementText().trimmed().toDouble(&ok);
+                        if (ok) fd.maxVal = v;
+                    } else if (tag == "Inc") {
+                        bool ok; double v = xml.readElementText().trimmed().toDouble(&ok);
+                        if (ok) fd.incVal = v;
+                    } else if (tag == "Unit") {
+                        fd.unit = xml.readElementText().trimmed();
+                    }
+                }
+
             } else if (inReg) {
-                if (tag == "Address") {
-                    bool ok = false;
-                    uint64_t v = xml.readElementText().trimmed().toULongLong(&ok,0);
-                    if (ok && v != 0) { regs[curReg].address = v; regs[curReg].hasAddr = true; }
+                auto& rd = regs[curName];
+                if (tag == "Address" || tag == "Offset") {
+                    bool ok; uint64_t v = xml.readElementText().trimmed().toULongLong(&ok,0);
+                    if (ok && v != 0) { rd.address = v; rd.hasAddr = true; }
                 } else if (tag == "Length") {
-                    bool ok = false;
-                    uint32_t v = xml.readElementText().trimmed().toUInt(&ok,0);
-                    if (ok) regs[curReg].length = v;
-                } else if (tag == "Endianess") {
-                    regs[curReg].bigEndian =
-                        xml.readElementText().trimmed() == "BigEndian";
+                    bool ok; uint32_t v = xml.readElementText().trimmed().toUInt(&ok,0);
+                    if (ok) rd.length = v;
+                } else if (tag == "Endianess" || tag == "Endianness") {
+                    rd.bigEndian = xml.readElementText().trimmed() == "BigEndian";
                 }
             }
-        } else if (token == QXmlStreamReader::EndElement) {
+
+        } else if (tok == QXmlStreamReader::EndElement) {
             const QString tag = xml.name().toString();
-            if (tag == "Command")      { inCmd = false; curCmd.clear(); }
-            if (isRegisterNode(tag))   { inReg = false; curReg.clear(); }
+            if (isFeatureNode(tag) && tag == curTag) { inFeature = false; }
+            if (isRegNode(tag)     && tag == curTag) { inReg = false; }
+            if (tag == "EnumEntry")                  { inEntry = false; }
         }
     }
 
-    qDebug("ArvGenApiXml: parsed %d Command(s), %d Register(s)",
-           commands.size(), regs.size());
+    qDebug("ArvGenApiXml: parsed %d features, %d registers",
+           features.size(), regs.size());
 
-    auto makeNode = [&](const QString& cmdName) -> ArvCommandNode {
-        ArvCommandNode node;
-        node.name = cmdName;
-        if (!commands.contains(cmdName)) return node;
-        const auto& ci = commands[cmdName];
-        node.commandValue = ci.cmdValue;
-        if (ci.pValueRef.isEmpty() || !regs.contains(ci.pValueRef)) {
-            qWarning("ArvGenApiXml: Register '%s' not found for Command '%s'",
-                     qPrintable(ci.pValueRef), qPrintable(cmdName));
-            return node;
+    // ── 2패스: 피처 → 레지스터 연결 → GenApiNode 생성 ──────────────────────
+    for (auto it = features.begin(); it != features.end(); ++it) {
+        const QString&    fname = it.key();
+        const FeatureDef& fd    = it.value();
+
+        GenApiNode node;
+        node.name    = fname;
+        node.minVal  = fd.minVal;
+        node.maxVal  = fd.maxVal;
+        node.incVal  = fd.incVal;
+        node.unit    = fd.unit;
+        node.commandValue = fd.cmdValue;
+        node.enumEntries  = fd.enumEntries;
+
+        // 노드 타입 결정
+        if      (fd.tag == "Integer")     node.type = GenApiNodeType::Integer;
+        else if (fd.tag == "Float")       node.type = GenApiNodeType::Float;
+        else if (fd.tag == "Enumeration") node.type = GenApiNodeType::Enumeration;
+        else if (fd.tag == "Command")     node.type = GenApiNodeType::Command;
+        else continue;
+
+        // pValue → 레지스터 연결 (직접 또는 Converter 체인)
+        QString regRef = fd.pValueRef;
+
+        // 최대 3단계 간접 참조 (IntSwissKnife, Converter 등)
+        for (int depth = 0; depth < 3 && !regs.contains(regRef); ++depth) {
+            if (features.contains(regRef))
+                regRef = features[regRef].pValueRef;
+            else
+                break;
         }
-        const auto& ri = regs[ci.pValueRef];
-        if (!ri.hasAddr) { return node; }
-        node.address   = ri.address;
-        node.length    = ri.length;
-        node.bigEndian = ri.bigEndian;
-        node.valid     = true;
-        qDebug("ArvGenApiXml: '%s' addr=0x%llX len=%u cmdVal=%u bigEndian=%d",
-               qPrintable(cmdName),(unsigned long long)node.address,
-               node.length, node.commandValue, node.bigEndian);
-        return node;
-    };
 
-    info.acquisitionStart = makeNode("AcquisitionStart");
-    info.acquisitionStop  = makeNode("AcquisitionStop");
+        if (!regs.contains(regRef)) {
+            // 레지스터를 찾지 못해도 노드는 등록 (추후 확장 가능)
+            continue;
+        }
+
+        const RegDef& rd = regs[regRef];
+        if (!rd.hasAddr) continue;
+
+        node.address   = rd.address;
+        node.length    = rd.length;
+        node.bigEndian = rd.bigEndian;
+        node.valid     = true;
+
+        // FloatReg이면 Float 타입으로 보정
+        if (rd.isFloat && node.type == GenApiNodeType::Integer)
+            node.type = GenApiNodeType::Float;
+
+        info.nodes[fname] = node;
+    }
+
+    qDebug("ArvGenApiXml: resolved %d nodes", info.nodes.size());
+
+    // ── 하위 호환: AcquisitionStart/Stop 추출 ────────────────────────────────
+    if (info.nodes.contains("AcquisitionStart"))
+        info.acquisitionStart = info.nodes["AcquisitionStart"];
+    if (info.nodes.contains("AcquisitionStop"))
+        info.acquisitionStop  = info.nodes["AcquisitionStop"];
+
     info.parsed = true;
     return info;
 }

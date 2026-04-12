@@ -99,7 +99,7 @@ ImageViewerDock* Ui_ImagingworkClass::getOrCreateViewer(QMainWindow* mainWindow,
     for (auto* viewer : m_imageViewers) {
         if (viewer
             && viewer->windowTitle() == deviceinfo.name
-            && viewer->description() == deviceinfo.description) {
+            && viewer->serialnumber() == deviceinfo.serialnumber) {
             // 기존 dock 재사용 시 이전 이미지 즉시 제거
             // (StopGrabbing 후 재연결 시 잔상 방지)
             viewer->clearImage();
@@ -107,7 +107,7 @@ ImageViewerDock* Ui_ImagingworkClass::getOrCreateViewer(QMainWindow* mainWindow,
             return viewer;
         }
     }
-    return createDock(mainWindow, deviceinfo.name, deviceinfo.description);
+    return createDock(mainWindow, deviceinfo.name, deviceinfo.serialnumber);
 }
 
 ImageViewerDock* Ui_ImagingworkClass::createDock(QMainWindow* mainWindow,

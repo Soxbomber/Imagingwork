@@ -23,7 +23,7 @@ public:
                                ImageViewerDock*  dock) = 0;
 
     // 특정 카메라만 정지 (뷰어 창 닫힐 때)
-    virtual void StopGrabbing(const QString& description) = 0;
+    virtual void StopGrabbing(const QString& serialnumber) = 0;
 
     // 모든 카메라 정지 (앱 종료 시)
     virtual void StopAll() = 0;

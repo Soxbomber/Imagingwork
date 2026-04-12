@@ -866,3 +866,23 @@ bool ArvU3vDevice::executeAcquisitionStop()
 
 ArvU3vDevice::ArvU3vDevice()  {}
 ArvU3vDevice::~ArvU3vDevice() { close(); }
+
+// ── ArvU3vDeviceRegAdapter 구현 ──────────────────────────────────────────────
+bool ArvU3vDeviceRegAdapter::readRegister(uint32_t addr, uint32_t& val)
+{
+    uint32_t v{};
+    if (!m_dev->readMemory(static_cast<uint64_t>(addr), &v, 4)) return false;
+    val = v; return true;
+}
+bool ArvU3vDeviceRegAdapter::writeRegister(uint32_t addr, uint32_t val)
+{
+    return m_dev->writeMemory(static_cast<uint64_t>(addr), &val, 4);
+}
+bool ArvU3vDeviceRegAdapter::readMemory(uint32_t addr, uint8_t* buf, uint32_t sz)
+{
+    return m_dev->readMemory(static_cast<uint64_t>(addr), buf, sz);
+}
+bool ArvU3vDeviceRegAdapter::writeMemory(uint32_t addr, const uint8_t* buf, uint32_t sz)
+{
+    return m_dev->writeMemory(static_cast<uint64_t>(addr), buf, sz);
+}

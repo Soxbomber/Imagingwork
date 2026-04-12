@@ -25,13 +25,11 @@ void Imagingwork::stopAllCameras()
     if (m_stopped) return;
     m_stopped = true;
 
-    if (ui.m_subWindow) {
-        // U3V + UVC 드라이버 모두 정지
-        if (auto* u3v = ui.m_subWindow->getCamera())
-            u3v->StopAll();
-        // UVC는 getDriverFor로 접근 불가하므로 CamSubWindow 소멸자에서 처리
-    }
+    // U3V / GigE / UVC 드라이버 전체 정지
+    if (ui.m_subWindow)
+        ui.m_subWindow->stopAllDrivers();
 
+    // 모든 viewer 이미지 즉시 해제
     for (auto* viewer : ui.m_imageViewers)
         if (viewer) viewer->clearImage();
 }
@@ -58,23 +56,23 @@ void Imagingwork::onDeviceReadyToLaunch(const DeviceInfo& deviceinfo,
             Qt::UniqueConnection);
 
     // ⑤ DeviceManager 상태 갱신
-    ui.m_deviceManager->setDeviceConnected(deviceinfo.description, !grabbing);
+    ui.m_deviceManager->setDeviceConnected(deviceinfo.serialnumber, !grabbing);
     emit ui.m_deviceManager->deviceLaunched(deviceinfo);
 }
 
-void Imagingwork::onViewerClosed(const QString& description)
+void Imagingwork::onViewerClosed(const QString& serialnumber)
 {
     // description으로 해당 드라이버를 찾아 정지
     // (U3V와 UVC가 각각 다른 드라이버를 사용)
     ICameraDriver* camera = ui.m_subWindow
-                            ? ui.m_subWindow->getDriverFor(description)
+                            ? ui.m_subWindow->getDriverFor(serialnumber)
                             : nullptr;
     if (!camera)
         camera = ui.m_subWindow ? ui.m_subWindow->getCamera() : nullptr;
     if (camera)
-        camera->StopGrabbing(description);
+        camera->StopGrabbing(serialnumber);
 
-    ui.m_deviceManager->setDeviceConnected(description, true);
+    ui.m_deviceManager->setDeviceConnected(serialnumber, true);
 }
 
 void Imagingwork::onCamButtonClicked()

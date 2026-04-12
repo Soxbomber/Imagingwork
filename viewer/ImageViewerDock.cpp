@@ -163,7 +163,7 @@ void ImageViewerDock::acceptFrames()
 {
     m_accepting = true;
 }
-QString ImageViewerDock::description() const        { return m_description; }
+QString ImageViewerDock::serialnumber() const        { return m_description; }
 
 void ImageViewerDock::onTopLevelChanged(bool floating)
 {
@@ -177,6 +177,13 @@ void ImageViewerDock::UpdateImageViewer(QImage image)
     // clearImage() 이후 큐에 남아있던 이전 프레임 차단
     if (!m_accepting || image.isNull()) return;
 
+    // QPixmap::fromImage(5MP BGRA) = ~3-5ms (GPU 업로드)
+    // UI가 이전 프레임 처리 중이면 drop → QueuedConnection 큐 누적 방지
+    bool expected = false;
+    if (!m_rendering.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel))
+        return;  // 이전 프레임 렌더링 중 → drop
+
     if (m_firstFrame ||
         m_view->sceneRect().size().toSize() != image.size()) {
         m_view->setSceneRect(image.rect());
@@ -185,6 +192,7 @@ void ImageViewerDock::UpdateImageViewer(QImage image)
     }
 
     m_view->updateImage(std::move(image));
+    m_rendering.store(false, std::memory_order_release);
 }
 
 void ImageViewerDock::closeEvent(QCloseEvent* event)

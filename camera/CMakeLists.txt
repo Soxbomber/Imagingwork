@@ -23,6 +23,8 @@ add_library(camera STATIC
     genicam/ArvU3vStream.cpp
     genicam/ArvGenApiXml.h
     genicam/ArvGenApiXml.cpp
+    genicam/GenApiController.h
+    genicam/GenApiController.cpp
     genicam/ArvCameraDriver.h
     genicam/ArvCameraDriver.cpp
 

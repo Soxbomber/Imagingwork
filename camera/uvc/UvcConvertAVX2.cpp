@@ -33,20 +33,50 @@ static inline uint8_t clamp255(int v) {
 }
 
 // ── 1. ARGB32 → ARGB32 (NT-store memcpy) ─────────────────────────────────────
-// 2560×1440 ARGB32 = 14MB > L3 캐시 → non-temporal store로 cache bypass
+// dst가 32byte 정렬된 경우 _mm256_stream_si256 (NT, cache bypass)
+// 비정렬인 경우 _mm256_storeu_si256 (안전, cache 사용)
+// → _mm256_stream_si256은 반드시 32byte 정렬 필수, 위반 시 SEGFAULT
 void avx2_argb32_to_argb32(const uint8_t* src, uint32_t* dst, int n)
 {
     const int vec = (n / 8) * 8;   // 8픽셀(32B) 단위
+
+    // dst의 32byte 정렬 여부 확인
+    const bool aligned = (reinterpret_cast<uintptr_t>(dst) & 31u) == 0;
+
     const __m256i* s = reinterpret_cast<const __m256i*>(src);
-    __m256i* d = reinterpret_cast<__m256i*>(dst);
+          __m256i* d = reinterpret_cast<__m256i*>(dst);
 
-    for (int i = 0; i < vec / 8; ++i)
-        _mm256_stream_si256(d + i, _mm256_loadu_si256(s + i));
-    _mm_sfence();
+    if (aligned) {
+        // 32byte 정렬: non-temporal store (cache bypass, 14MB+ 버퍼에 유리)
+        for (int i = 0; i < vec / 8; ++i)
+            _mm256_stream_si256(d + i, _mm256_loadu_si256(s + i));
+        _mm_sfence();
+    } else {
+        // 비정렬: storeu 사용 (QImage::bits() 정렬 보장 안 됨)
+        for (int i = 0; i < vec / 8; ++i)
+            _mm256_storeu_si256(d + i, _mm256_loadu_si256(s + i));
+    }
 
-    // 나머지
-    std::memcpy(dst + vec, src + vec * 4,
-                static_cast<size_t>((n - vec) * 4));
+    // 나머지 (8픽셀 미만)
+    if (n - vec > 0)
+        std::memcpy(dst + vec, src + static_cast<size_t>(vec) * 4,
+                    static_cast<size_t>(n - vec) * 4);
+}
+
+// ── 정렬 안전 256bit store 헬퍼 ──────────────────────────────────────────────
+// _mm256_stream_si256: dst 32byte 정렬 필수 (위반 시 SEGFAULT)
+// QImage::bits()는 32byte 정렬 보장 안 됨 → 런타임 정렬 확인 필요
+static inline void safe_store256(__m256i* dst, __m256i val, bool aligned)
+{
+    if (aligned)
+        _mm256_stream_si256(dst, val);
+    else
+        _mm256_storeu_si256(dst, val);
+}
+
+static inline bool is_aligned32(const void* p)
+{
+    return (reinterpret_cast<uintptr_t>(p) & 31u) == 0;
 }
 
 // ── 2. RGB32 → ARGB32 ─────────────────────────────────────────────────────────
@@ -56,14 +86,15 @@ void avx2_rgb32_to_argb32(const uint32_t* src, uint32_t* dst, int n)
 {
     const __m256i alpha = _mm256_set1_epi32(static_cast<int>(0xFF000000u));
     const int vec = (n / 8) * 8;
+    const bool aligned = is_aligned32(dst);
 
     for (int i = 0; i < vec; i += 8) {
         __m256i v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(src + i));
         v = _mm256_or_si256(v, alpha);
-        _mm256_stream_si256(reinterpret_cast<__m256i*>(dst + i), v);
+        safe_store256(reinterpret_cast<__m256i*>(dst + i), v, aligned);
     }
-    _mm_sfence();
+    if (aligned) _mm_sfence();
 
     for (int i = vec; i < n; ++i)
         dst[i] = src[i] | 0xFF000000u;
@@ -101,6 +132,7 @@ void avx2_bgr32_to_argb32(const uint8_t* src, uint32_t* dst, int n)
     const __m256i alpha = _mm256_set1_epi32(static_cast<int>(0xFF000000u));
     const __m256i mask  = _mm256_set1_epi32(0x00FFFFFFu); // X 제거
     const int vec = (n / 8) * 8;
+    const bool aligned = is_aligned32(dst);
 
     for (int i = 0; i < vec; i += 8) {
         __m256i v = _mm256_loadu_si256(
@@ -108,9 +140,9 @@ void avx2_bgr32_to_argb32(const uint8_t* src, uint32_t* dst, int n)
         // BGR32: [B G R X] 메모리 순서 → uint32 = 0xXXRRGGBB (LE)
         // → alpha 삽입: 0xFF_RR_GG_BB
         v = _mm256_or_si256(_mm256_and_si256(v, mask), alpha);
-        _mm256_stream_si256(reinterpret_cast<__m256i*>(dst + i), v);
+        safe_store256(reinterpret_cast<__m256i*>(dst + i), v, aligned);
     }
-    _mm_sfence();
+    if (aligned) _mm_sfence();
 
     for (int i = vec; i < n; ++i) {
         const uint8_t* p = src + i * 4;
@@ -243,6 +275,7 @@ void avx2_rgb565_to_argb32(const uint16_t* src, uint32_t* dst, int n)
     const __m256i alpha = _mm256_set1_epi32(static_cast<int>(0xFF000000u));
 
     const int vec = (n / 8) * 8;  // 8픽셀씩 (128bit = 8×16bit)
+    const bool aligned = is_aligned32(dst);
 
     // 8픽셀(16B) 단위 처리
     for (int i = 0; i < vec; i += 8) {
@@ -284,9 +317,9 @@ void avx2_rgb565_to_argb32(const uint16_t* src, uint32_t* dst, int n)
             _mm256_or_si256(alpha, r8),
             _mm256_or_si256(g8, b8));
 
-        _mm256_stream_si256(reinterpret_cast<__m256i*>(dst + i), out);
+        safe_store256(reinterpret_cast<__m256i*>(dst + i), out, aligned);
     }
-    _mm_sfence();
+    if (aligned) _mm_sfence();
 
     // 나머지 스칼라
     for (int i = vec; i < n; ++i) {
@@ -419,8 +452,9 @@ static inline void yuyv8_to_bgra(__m128i src8, bool uyvy, uint8_t* dst)
     __m128i bgra_lo = _mm_unpacklo_epi16(bg, ra); // B0G0R0A0 B1G1R1A1 B2G2R2A2 B3G3R3A3
     __m128i bgra_hi = _mm_unpackhi_epi16(bg, ra); // B4G4R4A4 ...
 
-    _mm_stream_si128(reinterpret_cast<__m128i*>(dst +  0), bgra_lo);
-    _mm_stream_si128(reinterpret_cast<__m128i*>(dst + 16), bgra_hi);
+    // _mm_stream_si128은 16byte 정렬 필수 → storeu 사용
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(dst +  0), bgra_lo);
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + 16), bgra_hi);
 }
 
 // 행 단위 처리: 16픽셀씩 (SSE + NT-store)

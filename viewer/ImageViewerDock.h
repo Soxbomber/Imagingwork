@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDockWidget>
+#include <atomic>
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsPixmapItem>
@@ -52,7 +53,7 @@ public:
     void    resetZoom();
     void    clearImage();       // 이전 이미지 즉시 제거 및 메모리 해제
     void    acceptFrames();     // clearImage() 후 새 프레임 수신 재개
-    QString description() const;
+    QString serialnumber() const;
 
 public slots:
     void UpdateImageViewer(QImage image);
@@ -71,4 +72,5 @@ private:
     QString            m_description;
     bool               m_firstFrame{ true };
     bool               m_accepting { true };  // false이면 UpdateImageViewer 무시
+    std::atomic<bool>  m_rendering { false }; // QPixmap 렌더링 중 drop flag
 };
