@@ -31,21 +31,50 @@ static constexpr uint16_t GVCP_ACK_WRITE_MEMORY    = 0x0087;
 static constexpr uint16_t GVCP_ACK_PENDING         = 0x0089;
 
 // ── GVCP 플래그 ──────────────────────────────────────────────────────────────
-static constexpr uint8_t GVCP_CMD_FLAG_ACK_REQUIRED             = 0x40;
-static constexpr uint8_t GVCP_DISCOVERY_FLAG_ALLOW_BROADCAST_ACK = 0x10;
+// Aravis arvgvcpprivate.h 기준 (GigE Vision 2.0 Spec)
+static constexpr uint8_t GVCP_CMD_FLAG_NONE                       = 0x00;
+static constexpr uint8_t GVCP_CMD_FLAG_ACK_REQUIRED               = 0x01; // bit0
+static constexpr uint8_t GVCP_CMD_FLAG_EXTENDED_IDS               = 0x10; // bit4
+static constexpr uint8_t GVCP_DISCOVERY_FLAG_ALLOW_BROADCAST_ACK  = 0x10; // bit4
 
 // ── GVCP 상태 코드 ───────────────────────────────────────────────────────────
 static constexpr uint16_t GVCP_STATUS_SUCCESS = 0x0000;
 
 // ── GVCP 패킷 헤더 (big-endian on wire) ──────────────────────────────────────
+// ── GVCP 패킷 헤더 ───────────────────────────────────────────────────────────
+// CMD 패킷 (host → camera):
+//   byte[0]   = 0x42 (key, always)
+//   byte[1]   = flags
+//   byte[2-3] = command  (big-endian)
+//   byte[4-5] = length   (payload length, big-endian)
+//   byte[6-7] = req_id   (big-endian)
+//
+// ACK 패킷 (camera → host):
+//   byte[0-1] = status   (big-endian, 0x0000=SUCCESS)
+//   byte[2-3] = command  (big-endian)
+//   byte[4-5] = length   (payload length, big-endian)
+//   byte[6-7] = req_id   (big-endian)
+//
+// CMD와 ACK는 bytes[0-1]의 의미가 다르므로 별도 구조체 사용
+
 #pragma pack(push, 1)
-struct GvcpHeader {
-    uint8_t  packet_type;   // 0x42=CMD, 0x00=ACK
-    uint8_t  packet_flags;
+struct GvcpCmdHeader {
+    uint8_t  key_code;      // 항상 0x42
+    uint8_t  flags;
     uint16_t command;       // big-endian
     uint16_t length;        // payload length, big-endian
-    uint16_t req_id;        // request id, big-endian
+    uint16_t req_id;        // big-endian
 };
+
+struct GvcpAckHeader {
+    uint16_t status;        // big-endian, 0x0000=SUCCESS
+    uint16_t command;       // big-endian
+    uint16_t length;        // payload length, big-endian
+    uint16_t req_id;        // big-endian
+};
+
+// 하위 호환: GvcpHeader = CMD용
+using GvcpHeader = GvcpCmdHeader;
 
 struct GvcpDiscoveryCmd {
     GvcpHeader header;
@@ -61,7 +90,7 @@ struct GvcpReadRegCmd {
 };
 
 struct GvcpReadRegAck {
-    GvcpHeader header;
+    GvcpAckHeader header;
     uint32_t   value;       // big-endian
 };
 
@@ -72,7 +101,7 @@ struct GvcpWriteRegCmd {
 };
 
 struct GvcpWriteRegAck {
-    GvcpHeader header;
+    GvcpAckHeader header;
     uint16_t   reserved;
     uint16_t   data_index;  // big-endian
 };
@@ -85,7 +114,7 @@ struct GvcpReadMemCmd {
 };
 
 struct GvcpReadMemAck {
-    GvcpHeader header;
+    GvcpAckHeader header;
     uint32_t   address;     // big-endian
     // followed by count bytes
 };
@@ -97,13 +126,13 @@ struct GvcpWriteMemCmd {
 };
 
 struct GvcpWriteMemAck {
-    GvcpHeader header;
+    GvcpAckHeader header;
     uint16_t   reserved;
     uint16_t   bytes_written; // big-endian
 };
 
 struct GvcpPendingAck {
-    GvcpHeader header;
+    GvcpAckHeader header;
     uint16_t   reserved;
     uint16_t   timeout_ms;  // big-endian
 };
@@ -130,8 +159,11 @@ static constexpr uint32_t GVBS_GVCP_CAPABILITY_OFFSET       = 0x00000934;
 static constexpr uint32_t GVBS_HEARTBEAT_TIMEOUT_OFFSET     = 0x00000938;
 static constexpr uint32_t GVBS_TIMESTAMP_FREQUENCY_OFFSET   = 0x00000940;
 static constexpr uint32_t GVBS_CCP_OFFSET                   = 0x00000A00; // Control Channel Privilege
-static constexpr uint32_t GVBS_CCP_EXCLUSIVE_ACCESS         = 0x00000002;
-static constexpr uint32_t GVBS_CCP_CONTROL_ACCESS           = 0x00000001;
+// GigE Vision 2.0 Spec + Aravis arvgvcpprivate.h:
+//   bit0 = Exclusive access (한 호스트만, 다른 접속 차단)
+//   bit1 = Control access   (제어 가능, 다른 호스트는 읽기만)
+static constexpr uint32_t GVBS_CCP_EXCLUSIVE_ACCESS         = 0x00000001; // bit0
+static constexpr uint32_t GVBS_CCP_CONTROL_ACCESS           = 0x00000002; // bit1
 
 // Stream Channel 0 레지스터 (채널 N: base + N*0x40)
 static constexpr uint32_t GVBS_SC0_PORT_OFFSET              = 0x00000D00;

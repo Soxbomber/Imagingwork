@@ -79,7 +79,7 @@ bool ArvCameraDriver::StartGrabbing(const DeviceInfo& di,
     if (!dock || !m_ctx) return false;
 
     for (auto& ctx : m_cameras) {
-        if (ctx->deviceinfo.serialnumber != di.serialnumber) continue;
+        if (ctx->deviceinfo.serialNumber != di.serialNumber) continue;
         if (!ctx->deviceinfo.isOpenable) return true;
 
         ctx->dock = dock;
@@ -148,10 +148,10 @@ bool ArvCameraDriver::StartGrabbing(const DeviceInfo& di,
 }
 
 // ── StopGrabbing ──────────────────────────────────────────────────────────────
-void ArvCameraDriver::StopGrabbing(const QString& serialnumber)
+void ArvCameraDriver::StopGrabbing(const QString& desc)
 {
     for (auto& ctx : m_cameras) {
-        if (ctx->deviceinfo.serialnumber != serialnumber) continue;
+        if (ctx->deviceinfo.serialNumber != desc) continue;
         stopCtx(*ctx);
         ctx->dock   = nullptr;
         ctx->stream = nullptr;
@@ -195,17 +195,17 @@ void ArvCameraDriver::stopCtx(ArvCameraCtx& ctx)
 
 // ── GenApi 파라미터 제어 구현 ─────────────────────────────────────────────────
 
-ArvCameraCtx* ArvCameraDriver::findCtx(const QString& serialnumber)
+ArvCameraCtx* ArvCameraDriver::findCtx(const QString& description)
 {
     for (auto& c : m_cameras)
-        if (c->deviceinfo.serialnumber == serialnumber) return c.get();
+        if (c->deviceinfo.serialNumber == description) return c.get();
     return nullptr;
 }
 
-bool ArvCameraDriver::setResolution(const QString& serialnumber,
+bool ArvCameraDriver::setResolution(const QString& desc,
                                      int w, int h, int offsetX, int offsetY)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
+    ArvCameraCtx* ctx = findCtx(desc);
     if (!ctx || !ctx->controller) return false;
     auto& ctrl = *ctx->controller;
 
@@ -226,35 +226,35 @@ bool ArvCameraDriver::setResolution(const QString& serialnumber,
     return ok;
 }
 
-bool ArvCameraDriver::setExposureTime(const QString& serialnumber, double us)
+bool ArvCameraDriver::setExposureTime(const QString& desc, double us)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
+    ArvCameraCtx* ctx = findCtx(desc);
     if (!ctx || !ctx->controller) return false;
     auto& ctrl = *ctx->controller;
 
     // ExposureTime 노드가 Integer(ns)인 경우 자동 변환
-    if (ctrl.nodeType("ExposureTime") == GenApiNodeType::Integer)
+    if (ctrl.nodeType("ExposureTime") == GenApiController::NodeType::Integer)
         return ctrl.setInteger("ExposureTime",
                                static_cast<int64_t>(us * 1000.0)); // us→ns
     return ctrl.setFloat("ExposureTime", us);
 }
 
-bool ArvCameraDriver::getExposureTime(const QString& serialnumber, double& us)
+bool ArvCameraDriver::getExposureTime(const QString& desc, double& us)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
+    ArvCameraCtx* ctx = findCtx(desc);
     if (!ctx || !ctx->controller) return false;
     auto& ctrl = *ctx->controller;
 
-    if (ctrl.nodeType("ExposureTime") == GenApiNodeType::Integer) {
+    if (ctrl.nodeType("ExposureTime") == GenApiController::NodeType::Integer) {
         int64_t ns{}; bool ok = ctrl.getInteger("ExposureTime", ns);
         if (ok) us = ns / 1000.0; return ok;
     }
     return ctrl.getFloat("ExposureTime", us);
 }
 
-bool ArvCameraDriver::setGain(const QString& serialnumber, double dB)
+bool ArvCameraDriver::setGain(const QString& desc, double dB)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
+    ArvCameraCtx* ctx = findCtx(desc);
     if (!ctx || !ctx->controller) return false;
     // Gain이 없으면 GainRaw 시도
     if (ctx->controller->hasNode("Gain"))
@@ -262,18 +262,18 @@ bool ArvCameraDriver::setGain(const QString& serialnumber, double dB)
     return ctx->controller->setFloat("GainRaw", dB);
 }
 
-bool ArvCameraDriver::getGain(const QString& serialnumber, double& dB)
+bool ArvCameraDriver::getGain(const QString& desc, double& dB)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
+    ArvCameraCtx* ctx = findCtx(desc);
     if (!ctx || !ctx->controller) return false;
     if (ctx->controller->hasNode("Gain"))
         return ctx->controller->getFloat("Gain", dB);
     return ctx->controller->getFloat("GainRaw", dB);
 }
 
-bool ArvCameraDriver::setFrameRate(const QString& serialnumber, double fps)
+bool ArvCameraDriver::setFrameRate(const QString& desc, double fps)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
+    ArvCameraCtx* ctx = findCtx(desc);
     if (!ctx || !ctx->controller) return false;
     auto& ctrl = *ctx->controller;
 
@@ -290,9 +290,9 @@ bool ArvCameraDriver::setFrameRate(const QString& serialnumber, double fps)
     return ctrl.setFloat("FrameRate", fps);
 }
 
-bool ArvCameraDriver::getFrameRate(const QString& serialnumber, double& fps)
+bool ArvCameraDriver::getFrameRate(const QString& desc, double& fps)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
+    ArvCameraCtx* ctx = findCtx(desc);
     if (!ctx || !ctx->controller) return false;
     auto& ctrl = *ctx->controller;
     if (ctrl.hasNode("AcquisitionFrameRate"))
@@ -302,30 +302,28 @@ bool ArvCameraDriver::getFrameRate(const QString& serialnumber, double& fps)
     return ctrl.getFloat("FrameRate", fps);
 }
 
-bool ArvCameraDriver::setInteger(const QString& serialnumber,
+bool ArvCameraDriver::setInteger(const QString& desc,
                                   const QString& node, int64_t val)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
-    return ctx && ctx->controller && ctx->controller->setInteger(node, val);
+    ArvCameraCtx* ctx = findCtx(desc);
+    return ctx && ctx->controller &&
+           ctx->controller->setInteger(node.toUtf8().constData(), val);
 }
 
-bool ArvCameraDriver::setFloat(const QString& serialnumber,
+bool ArvCameraDriver::setFloat(const QString& desc,
                                 const QString& node, double val)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
-    return ctx && ctx->controller && ctx->controller->setFloat(node, val);
+    ArvCameraCtx* ctx = findCtx(desc);
+    return ctx && ctx->controller &&
+           ctx->controller->setFloat(node.toUtf8().constData(), val);
 }
 
-bool ArvCameraDriver::setEnum(const QString& serialnumber,
+bool ArvCameraDriver::setEnum(const QString& desc,
                                const QString& node, const QString& entry)
 {
-    ArvCameraCtx* ctx = findCtx(serialnumber);
-    return ctx && ctx->controller && ctx->controller->setEnum(node, entry);
+    ArvCameraCtx* ctx = findCtx(desc);
+    return ctx && ctx->controller &&
+           ctx->controller->setEnum(node.toUtf8().constData(),
+                                    entry.toUtf8().constData());
 }
 
-GenApiController::CameraParams ArvCameraDriver::readParams(const QString& serialnumber)
-{
-    ArvCameraCtx* ctx = findCtx(serialnumber);
-    if (!ctx || !ctx->controller) return {};
-    return ctx->controller->readAll();
-}

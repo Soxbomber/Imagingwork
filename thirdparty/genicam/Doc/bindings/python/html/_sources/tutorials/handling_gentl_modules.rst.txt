@@ -1,0 +1,210 @@
+*****************************
+Handling GenTL Module Objects
+*****************************
+
+The following class diagram shows relationship between the Python classes those are provided as Python package :mod:`gentl.py`. In this section, we will learn how to manipulate those classes in Python code.
+
+.. uml:: ../uml/class/py-cpp.uml
+  :align: center
+
+The following import statements are required for this tutorial.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 0
+    :start-after: [begin] the import statement block.
+    :end-before: [end]
+
+And prepare a path name to the target CTI file as follow. We use TLSimu as a target GenTL Producer for this tutorial.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/tutorial_helper.py
+    :language: python
+    :dedent: 0
+    :start-after: [begin] prepare a path to the target cti file.
+    :end-before: [end]
+
+First, instantiate a :class:`~gentl.GenTLProducer` object calling :meth:`~gentl.GenTLProducer.create_producer` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] instantiate a gentlproducer object.
+    :end-before: [end]
+
+Then open a CTI file calling :meth:`~gentl.GenTLProducer.open` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] open a cti file.
+    :end-before: [end]
+
+Having called the :meth:`~gentl.GenTLProducer.open` method, the :class:`~gentl.GenTLProducer` object will open the specified CTI file and eventually call :func:`GCInitLib` function internally. It will allow you to use the funtionality that the target GenTL Producer provides.
+
+Next, instantiate a :class:`~gentl.System` object calling :meth:`~gentl.GenTLProducer.create_system` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] instantiate a system object.
+    :end-before: [end]
+
+Then open the GenTL System module calling :meth:`~gentl.System.open` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] open the system module.
+    :end-before: [end]
+
+To instantiate an :class:`~gentl.Interface` object, now you have to update the interface information list first that the :class:`~gentl.System` object is holding calling :meth:`~gentl.System.update_interface_info_list` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] update the interface info info.
+    :end-before: [end]
+
+Here you can instantiate an :class:`~gentl.Interface` object supplying an index to :class:`~gentl.InterfaceInfo` object calling :meth:`~gentl.InterfaceInfo.create_interface` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] instantiate an interface object.
+    :end-before: [end]
+
+And open the GenTL Interface module calling :meth:`~gentl.Interface.open` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] open the interface module.
+    :end-before: [end]
+
+By the way, you can get the number of items in the property using Python's built-in :func:`len` function. You can apply this trick to other information :class:`list` properties.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] it's too late but count the number of interfaceinfo.
+    :end-before: [end]
+
+Next, we instantiate a :class:`~gentl.Device` object. To instantiate a :class:`~gentl.Device` object you have to update the device information list that the :class:`~gentl.Interface` object is holding calling :meth:`~gentl.Interface.update_device_info_list` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] update the dev info list.
+    :end-before: [end]
+
+Here you can instantiate a :class:`~gentl.Device` object calling :meth:`~gentl.DeviceInfo.create_device` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] instantiate a device object.
+    :end-before: [end]
+
+And open the GenTL Device module calling :meth:`~gentl.Device.open` method. You can specify either access mode from :class:`~gentl.DEVICE_ACCESS_FLAGS_LIST`:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] open the device module.
+    :end-before: [end]
+
+Finally, we instantiate a :class:`~genapi.NodeMap` object defined by :mod:`genapi` module that is out of scope of this documentation. In general, when we use a :class:`~genapi.NodeMap` object, we connect a remote device's port to the :class:`~genapi.NodeMap` object. To connect a port to a :class:`~genapi.NodeMap` object, we call :meth:`~genapi.NodeMap.connect` method of the :class:`~gentl.NodeMap` object. The method takes a class that is derived from :class:`~genapi.AbstractPort` class which is also defined by :mod:`~genapi` module. So now we define own concrete port class deriving from :class:`~genapi.AbstractPort` class here.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 0
+    :start-after: [begin] class definition of portimpl.
+    :end-before: [end]
+
+And we instantiate a :class:`ConcretePort` object. By design, its constructor takes a :class:`~gentl.Port` object that is defined by the :mod:`~gentl` module as the parameter and now we want to instantiate it with our remote device's port so we pass the :class:`~gentl.Port` object that is returned by :attr:`~gentl.Device.remote_port` attribute of the :class:`~gentl.Device` object:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] instantiate a concrete port class object.
+    :end-before: [end]
+
+Next, download a GenICam device description file from the remote device. First, let check where the file is located:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] get the url of a device description file.
+    :end-before: [end]
+
+Then parse it:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] parse the url.
+    :end-before: [end]
+
+Now we're ready for downloading the device description file. Having called the following code, you will get the content of a GenICam device description file:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] download the device description file.
+    :end-before: [end]
+
+The :meth:`read` method our port class object returns a Python's builit-in :class:`list` objoect that is consisting of a Python's built-in :class:`bytes` object which holds the read out data and an :class:`int` object to represents the size of the read out data. Now we need the read out data itself so we get that accessing index #1 of the returned object. If you need the size, use index #0.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] get the content of the ddf.
+    :end-before: [end]
+
+Here we instantiate a :class:`~genapi.NodeMap` object and load the downloaded device description file content on it.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] instantiate a node map object.
+    :end-before: [end]
+
+And we only have the last step. Let's connect the remote port to the node map object so that GenApi can interact with the remote device. The :meth:`~gentl.NodeMap.connect` method of :class:`~genapi.NodeMap` class takes a port class object which derives from :class:`~genapi.AbstractPort` class of :mod:`genapi` module and a :class:`str` object that holds the name of the port.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] connect the remote mote to the node map object.
+    :end-before: [end]
+
+Okay, now you have finished the minimum preparation for the following possible manipulations. Regarding image acquisition that involves :class:`~gentl.DataStream` class, :class:`~gentl.Buffer` class and an event manager class, you will learn about it in the following chapter.
+
+Releasing External Resources
+============================
+
+Managing external resource is very important. In this section we learn about external resource management.
+
+Python manages objects' lifetime using reference count. When the reference count reaches to zero, the :meth:`__del__` method is called then the object is destructed.
+
+However, even though the GenTL-Pyton Binding has been designed to release the external resources such as a CTI file when it's destructed but there are cases where reference count doesn't reach to zero by some reasons so you should not expect the :meth:`__del__` method is called in any case to realse external resources. 
+
+Having that fact, you should explicitly release the external resources calling its :meth:`~gentl.GenTLProducer.close` method:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] release the external resources.
+    :end-before: [end]
+
+Or using ``with`` statement is another way to go:
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_gentl_modules.py
+    :language: python
+    :dedent: 8
+    :start-after: [begin] run in with statement.
+    :end-before: [end]
+
+Using ``with`` statement we can be sure that the :class:`~gentl.GenTLProducer` object will release the external resources once it goes out of the scope. It gives you the same effect with calling the :meth:`~gentl.GenTLProducer.close` method.
+
+Anyway, leaving hooked external resources is not good thing at all so please carefylly consider a way to release the external resources for sure.
+

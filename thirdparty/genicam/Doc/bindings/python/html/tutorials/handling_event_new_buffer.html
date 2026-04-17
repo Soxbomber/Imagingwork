@@ -1,0 +1,421 @@
+
+
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Handling EVENT_NEW_BUFFER &#8212; The GenICam Python Bindings  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/bizstyle.css" />
+    
+    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <script src="../_static/sphinx_highlight.js"></script>
+    <script src="../_static/bizstyle.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Reference" href="../reference/index.html" />
+    <link rel="prev" title="Handling Events" href="handling_events.html" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <!--[if lt IE 9]>
+    <script src="_static/css3-mediaqueries.js"></script>
+    <![endif]-->
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../reference/index.html" title="Reference"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="handling_events.html" title="Handling Events"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Tutorials</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Handling EVENT_NEW_BUFFER</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="handling-event-new-buffer">
+<h1>Handling EVENT_NEW_BUFFER<a class="headerlink" href="#handling-event-new-buffer" title="Permalink to this heading">¶</a></h1>
+<p>You have learned how to handle events in the previous chapter. In this chapter, we demonstrate a more practical example: How about to learn how we can interact with <code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_NEW_BUFFER</span></code> event?</p>
+<p>The following class diagram shows the relationship between relevant classes. Note that relationship with the parent object classes of <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> class were intentionally omitted to save space in the diagram. The image is stretched following the browser size, or you could see it in the original size opening the image in another tab/window.</p>
+<div class="figure align-center">
+<p class="plantuml">
+<img src="../_images/plantuml-7420d51e1f8b505f2e7a23868b680a56fc178b21.png" alt="&#64;startuml
+
+'left to right direction
+top to bottom direction
+' up: Arrow goes up.
+' down: Arrow goes down
+' left: Arrow goes from right to left.
+' right: Arrow goes from left to right.
+
+'style options 
+skinparam circledCharacterRadius 11
+skinparam circledCharacterFontSize 12
+skinparam classFontSize 16
+skinparam classAttributeFontSize 16
+skinparam arrowFontSize 16
+hide empty members
+
+together {
+    class Consumer
+    together {
+        class bytes
+        class object
+    }
+}
+
+package gentl {
+    abstract class IEventCapableModule {
+        + is_open() : bool
+        + register_event(event_id : EVENT_TYPE_LIST) : EventToken
+        + unregister_event(event_id : EVENT_TYPE_LIST)
+    }
+        interface IEventCapableModule
+    class BufferToken {
+        + __init__(raw_buffer : bytes, context : object)
+    }
+    class DataStream {
+        + announce_buffer(buffer_token : BufferToken)
+        + queue_buffer(buffer : Buffer)
+        + revoke_buffer() : object
+    }
+    class Buffer {
+        + raw_buffer : bytes
+        + context : object
+    }
+    abstract class IEventManager {
+        + event_type : EVENT_TYPE_LIST
+        + num_fired : int
+        + num_in_queue : int
+        + __init__(event_token : EventToken)
+        + flush_event_queue() :
+        + is_monitoring_event() : bool
+    }
+        interface IEventManager
+    abstract class AbstractEventManager {
+        + update_event_data(timeout : int)
+    }
+    class EventManagerNewBuffer {
+        + buffer : Buffer
+    }
+    class EventToken
+}
+
+Consumer &quot;1&quot; .down.&gt; &quot;*&quot; bytes : &lt;&lt;create&gt;&gt;
+Consumer &quot;1&quot; .down.&gt; &quot;*&quot; object : &lt;&lt;create&gt;&gt;
+Consumer &quot;1&quot; .down.&gt; &quot;*&quot; DataStream : &lt;&lt;create&gt;&gt;
+Consumer &quot;1&quot; .down.&gt; &quot;1&quot; EventManagerNewBuffer : &lt;&lt;create&gt;&gt;
+
+'bytes -[hidden]- object
+
+BufferToken &quot;1&quot; .up.&gt; &quot;1&quot; bytes : &lt;&lt;use&gt;&gt;
+BufferToken &quot;1&quot; .up.&gt; &quot;1&quot; object : &lt;&lt;use&gt;&gt;
+
+Consumer &quot;1&quot; .down.&gt; &quot;*&quot; BufferToken : &lt;&lt;create&gt;&gt;
+
+DataStream .down.|&gt; IEventCapableModule
+DataStream &quot;1&quot; .up.&gt; &quot;1&quot; BufferToken : &lt;&lt;use&gt;&gt;
+DataStream &quot;1&quot; .down.&gt; &quot;*&quot; Buffer : &lt;&lt;create&gt;&gt;
+DataStream &quot;1&quot; .down.&gt; &quot;*&quot; Buffer : &lt;&lt;use&gt;&gt;
+
+Buffer &quot;1&quot; o-up-&gt; &quot;1&quot; bytes
+Buffer &quot;1&quot; o-up-&gt; &quot;0..1&quot; object
+IEventCapableModule &quot;1&quot; ..&gt; &quot;1&quot; EventToken : &lt;&lt;create&gt;&gt;
+AbstractEventManager .down.|&gt; IEventManager
+EventManagerNewBuffer .down.|&gt; AbstractEventManager
+EventManagerNewBuffer &quot;1&quot; .down.&gt; &quot;*&quot; Buffer : &lt;&lt;create&gt;&gt;
+IEventManager &quot;1&quot; .down.&gt; &quot;1&quot; EventToken : &lt;&lt;use&gt;&gt;
+
+&#64;enduml
+"/>
+</p>
+</div>
+<p>The event data of <code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_NEW_BUFFER</span></code> can be accessed through <code class="xref py py-class docutils literal notranslate"><span class="pre">EventManagerNewBuffer</span></code> class object. So let’s walk through the following steps to see how we can handle event data of <code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_NEW_BUFFER</span></code>.</p>
+<p>The following import statements are required for this tutorial.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">genicam.gentl</span> <span class="kn">import</span> <span class="n">EventManagerNewBuffer</span><span class="p">,</span> <span class="n">GenTLProducer</span><span class="p">,</span> <span class="n">BufferToken</span><span class="p">,</span> <span class="n">Port</span>
+<span class="kn">from</span> <span class="nn">genicam.gentl</span> <span class="kn">import</span> <span class="n">TimeoutException</span>
+<span class="kn">from</span> <span class="nn">genicam.gentl</span> <span class="kn">import</span> <span class="n">DEVICE_ACCESS_FLAGS_LIST</span><span class="p">,</span> <span class="n">EVENT_TYPE_LIST</span><span class="p">,</span> \
+    <span class="n">ACQ_START_FLAGS_LIST</span><span class="p">,</span> <span class="n">ACQ_STOP_FLAGS_LIST</span><span class="p">,</span> <span class="n">ACQ_QUEUE_TYPE_LIST</span>
+<span class="kn">from</span> <span class="nn">genicam.genapi</span> <span class="kn">import</span> <span class="n">NodeMap</span><span class="p">,</span> <span class="n">AbstractPort</span><span class="p">,</span> <span class="n">EAccessMode</span>
+</pre></div>
+</div>
+<p>First, instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object of the target remote device like we did in a previous chapter.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">concrete_port</span> <span class="o">=</span> <span class="n">ConcretePort</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="p">)</span>
+<span class="n">url_index</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">url</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="o">.</span><span class="n">url_info_list</span><span class="p">[</span><span class="n">url_index</span><span class="p">]</span><span class="o">.</span><span class="n">url</span>
+<span class="n">location</span><span class="p">,</span> <span class="n">others</span> <span class="o">=</span> <span class="n">url</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+<span class="c1"># Check if the URL contains a schema version.</span>
+<span class="k">if</span> <span class="s1">&#39;?&#39;</span> <span class="ow">in</span> <span class="n">others</span><span class="p">:</span>
+    <span class="n">others</span><span class="p">,</span> <span class="n">schema</span> <span class="o">=</span> <span class="n">others</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;?&#39;</span><span class="p">)</span>
+    <span class="n">file_name</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">size</span> <span class="o">=</span> <span class="n">others</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;;&#39;</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">file_name</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">size</span> <span class="o">=</span> <span class="n">others</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;;&#39;</span><span class="p">)</span>
+
+<span class="c1"># Download the device description file content from the</span>
+<span class="c1"># remote device.</span>
+<span class="n">address</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+<span class="n">size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+<span class="n">file_content</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+
+<span class="c1"># Instantiate a Node Map object and load the device description.</span>
+<span class="n">remote_device</span> <span class="o">=</span> <span class="n">NodeMap</span><span class="p">()</span>
+<span class="n">_</span><span class="p">,</span> <span class="n">extension</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">file_name</span><span class="p">)</span>
+<span class="k">if</span> <span class="s1">&#39;.zip&#39;</span> <span class="o">==</span> <span class="n">extension</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_name</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">zip_file</span><span class="p">:</span>
+        <span class="n">zip_file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">file_content</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="n">remote_device</span><span class="o">.</span><span class="n">load_xml_from_zip_file</span><span class="p">(</span><span class="n">file_name</span><span class="p">)</span>
+        <span class="n">zip_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">remote_device</span><span class="o">.</span><span class="n">load_xml_from_string</span><span class="p">(</span><span class="n">file_content</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+<span class="n">remote_device</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">concrete_port</span><span class="p">,</span> <span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Note that we used the following class deriving from <code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractPort</span></code> class of <code class="xref py py-mod docutils literal notranslate"><span class="pre">genapi</span></code> module.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">ConcretePort</span><span class="p">(</span><span class="n">AbstractPort</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gentl_port</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_assign_port_impl</span><span class="p">(</span><span class="n">gentl_port</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">is_open</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">True</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">length</span><span class="p">):</span>
+        <span class="n">buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">buffer</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">open</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gentl_port</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_assign_port_impl</span><span class="p">(</span><span class="n">gentl_port</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">get_access_mode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">EAccessMode</span><span class="o">.</span><span class="n">RW</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_open</span> <span class="k">else</span> <span class="n">EAccessMode</span><span class="o">.</span><span class="n">NA</span>
+
+    <span class="k">def</span> <span class="nf">_assign_port_impl</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="c1"># Check if the object is a GenTL Port module object.</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Port</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span> <span class="o">=</span> <span class="n">obj</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s1">&#39;Supplied object is not a GenTL Port object.&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>In general having instantiated a <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object for your remote device you would set up the device through the object so that it fits to your application. After setting up the device, in other words if the device is ready for working on your image acquisition task, accessing <code class="xref py py-attr docutils literal notranslate"><span class="pre">data_stream_ids</span></code> property of the <code class="xref py py-class docutils literal notranslate"><span class="pre">Device</span></code> class, instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">open_data_stream()</span></code> method. In the following example, it opens the first <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">data_stream</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">create_data_stream</span><span class="p">()</span>
+<span class="n">data_stream</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">data_stream_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>Next, determine the minimum number of buffers to be prepared. You must prepare sufficient numbers of buffers anyway. Anyway!</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">num_buffers</span> <span class="o">=</span> <span class="n">data_stream</span><span class="o">.</span><span class="n">buffer_announce_min</span>
+</pre></div>
+</div>
+<p>So, let’s determine the buffer size. It must not be less than the required at least. If the <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object defines payload size, you can determine the buffer size using its <code class="xref py py-attr docutils literal notranslate"><span class="pre">payload_size</span></code> property. If the <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object defines the payload size, its <code class="xref py py-attr docutils literal notranslate"><span class="pre">defines_payload_size</span></code> property returns <code class="docutils literal notranslate"><span class="pre">True</span></code>. If it doesn’t, the remote device would provide GenICam <code class="xref py py-attr docutils literal notranslate"><span class="pre">PayloadSize</span></code> node to let you know the required buffer size.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">if</span> <span class="n">data_stream</span><span class="o">.</span><span class="n">defines_payload_size</span><span class="p">():</span>
+    <span class="n">buffer_size</span> <span class="o">=</span> <span class="n">data_stream</span><span class="o">.</span><span class="n">payload_size</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">buffer_size</span> <span class="o">=</span> <span class="n">remote_device</span><span class="o">.</span><span class="n">PayloadSize</span><span class="o">.</span><span class="n">value</span>
+</pre></div>
+</div>
+<p>After that, instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">BufferToken</span></code> object. It’s used to announce a raw buffer and its tag data on the <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object. The constructor of <code class="xref py py-class docutils literal notranslate"><span class="pre">BufferToken</span></code> class takes <code class="xref py py-class docutils literal notranslate"><span class="pre">bytes</span></code> object as a raw buffer where the transmitter device delivers images and an arbitrary <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code> object to tag it on the raw buffer; maybe it would be an <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code> object if we go on a simple case.</p>
+<p>Instantiating a <code class="xref py py-class docutils literal notranslate"><span class="pre">BufferToken</span></code> object, announce the raw buffer as the place where images are delivered. To announce a raw buffer, you call <code class="xref py py-meth docutils literal notranslate"><span class="pre">announce_buffer()</span></code> method of the <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object. <code class="xref py py-meth docutils literal notranslate"><span class="pre">announce_buffer()</span></code> method takes a <code class="xref py py-class docutils literal notranslate"><span class="pre">BufferToken</span></code> object as its parameter and the method returns a <code class="xref py py-class docutils literal notranslate"><span class="pre">Buffer</span></code> object as its return. After announcing the raw buffer, you queue the <code class="xref py py-class docutils literal notranslate"><span class="pre">Buffer</span></code> object to the acquisition engine calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">queue_buffer()</span></code> method to get prepared for image acquisition.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">raw_buffers</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># is a list of raw buffers.</span>
+<span class="n">set_of_context</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># is a list of user data.</span>
+<span class="n">buffer_tokens</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># is a list of Buffer Token objects.</span>
+<span class="n">announced_buffers</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># is a list of announced Buffer objects.</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_buffers</span><span class="p">):</span>
+    <span class="c1"># Instantiate a Buffer Token object supplying a raw buffer and</span>
+    <span class="c1"># its user data as a tag.</span>
+    <span class="n">raw_buffers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="n">buffer_size</span><span class="p">))</span>
+    <span class="n">set_of_context</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    <span class="n">buffer_tokens</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+        <span class="n">BufferToken</span><span class="p">(</span>
+            <span class="n">raw_buffers</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">set_of_context</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+    <span class="c1"># Then announce the raw buffer (it&#39;s wrapped by the Buffer Token</span>
+    <span class="c1"># object. You&#39;ll get an announced Buffer class object.</span>
+    <span class="n">announced_buffers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+        <span class="n">data_stream</span><span class="o">.</span><span class="n">announce_buffer</span><span class="p">(</span><span class="n">buffer_tokens</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+    <span class="p">)</span>
+    <span class="c1"># Finally, queue the announced Buffer object to get prepared</span>
+    <span class="c1"># for image acquisition.</span>
+    <span class="n">data_stream</span><span class="o">.</span><span class="n">queue_buffer</span><span class="p">(</span><span class="n">announced_buffers</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>Then register an event calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">register_event()</span></code> method of the <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object and get an <code class="xref py py-class docutils literal notranslate"><span class="pre">EventToken</span></code> object that the method returns. In this example, we register <code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_NEW_BUFFER</span></code> event here. Then instantiate an <code class="xref py py-class docutils literal notranslate"><span class="pre">EventManagerNewBuffer</span></code> object passing the returned <code class="xref py py-class docutils literal notranslate"><span class="pre">EventToken</span></code> object. You have nothing to interact with <code class="xref py py-class docutils literal notranslate"><span class="pre">EventToken</span></code> object. Everything will be fine if you just pass it to the constructor of <code class="xref py py-class docutils literal notranslate"><span class="pre">EventManagerNewBuffer</span></code> class to have a way to access the event data later.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">event_token</span> <span class="o">=</span> <span class="n">data_stream</span><span class="o">.</span><span class="n">register_event</span><span class="p">(</span><span class="n">EVENT_TYPE_LIST</span><span class="o">.</span><span class="n">EVENT_NEW_BUFFER</span><span class="p">)</span>
+<span class="n">event_manager</span> <span class="o">=</span> <span class="n">EventManagerNewBuffer</span><span class="p">(</span><span class="n">event_token</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Now we can start image acquisition and acquire 10 images.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">num_images</span> <span class="o">=</span> <span class="mi">10</span>
+<span class="n">data_stream</span><span class="o">.</span><span class="n">start_acquisition</span><span class="p">(</span>
+    <span class="n">ACQ_START_FLAGS_LIST</span><span class="o">.</span><span class="n">ACQ_START_FLAGS_DEFAULT</span><span class="p">,</span>
+    <span class="n">num_images</span>
+<span class="p">)</span>
+<span class="n">remote_device</span><span class="o">.</span><span class="n">AcquisitionStart</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>If you want to keep acquisition until you call <code class="xref py py-meth docutils literal notranslate"><span class="pre">stop_acquisition()</span></code> method of <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> object, just omit passing the second parameter.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">data_stream</span><span class="o">.</span><span class="n">start_acquisition</span><span class="p">(</span>
+    <span class="n">ACQ_START_FLAGS_LIST</span><span class="o">.</span><span class="n">ACQ_START_FLAGS_DEFAULT</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Here we start acquiring images and you would manipulate them. You can access the delivered event data over <code class="xref py py-attr docutils literal notranslate"><span class="pre">buffer</span></code> property of the <code class="xref py py-class docutils literal notranslate"><span class="pre">EventManagerNewBuffer</span></code> object. The <code class="xref py py-attr docutils literal notranslate"><span class="pre">buffer</span></code> property returns a <code class="xref py py-class docutils literal notranslate"><span class="pre">Buffer</span></code> object then you can read the newly delivered buffer content through <code class="xref py py-attr docutils literal notranslate"><span class="pre">raw_buffer</span></code> property and its user data through <code class="xref py py-attr docutils literal notranslate"><span class="pre">user_data</span></code> property of the <code class="xref py py-class docutils literal notranslate"><span class="pre">Buffer</span></code> object. In addition, this is just for your information but note that the object that is returned from <code class="xref py py-attr docutils literal notranslate"><span class="pre">raw_buffer</span></code> property and the object that is returned from <code class="xref py py-attr docutils literal notranslate"><span class="pre">user_data</span></code> are identical.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">num_images</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># We have one or more events to process.</span>
+        <span class="c1"># Update the event data.</span>
+        <span class="n">event_manager</span><span class="o">.</span><span class="n">update_event_data</span><span class="p">(</span><span class="mi">3000</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">TimeoutException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># Nothing happened during the timeout period.</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># You would manipulate the buffer content having</span>
+        <span class="c1"># been supported by the tagged user data.</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="s1">&#39;Buffer #</span><span class="si">{}</span><span class="s1"> has delivered image #</span><span class="si">{}</span><span class="s1">. &#39;</span> \
+            <span class="s1">&#39;The buffer size is </span><span class="si">{}</span><span class="s1"> Bytes.&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                <span class="n">event_manager</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">context</span><span class="p">,</span>
+                <span class="n">i</span><span class="p">,</span>
+                <span class="nb">len</span><span class="p">(</span><span class="n">event_manager</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">raw_buffer</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Queue the buffer again for the following image</span>
+        <span class="c1"># acquisition.</span>
+        <span class="n">data_stream</span><span class="o">.</span><span class="n">queue_buffer</span><span class="p">(</span><span class="n">event_manager</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span>
+
+        <span class="c1"># Increments the index.</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="c1"># It&#39;s not necessary at all but let me demonstrate that</span>
+        <span class="c1"># the raw buffer returned from Buffer.raw_buffer property and</span>
+        <span class="c1"># the user data returned from Buffer.user_data property are</span>
+        <span class="c1"># identical to the ones you instantiated in the beginning.</span>
+        <span class="k">assert</span> <span class="n">event_manager</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">raw_buffer</span> <span class="ow">is</span> \
+               <span class="n">raw_buffers</span><span class="p">[</span><span class="n">event_manager</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">context</span><span class="p">]</span>
+        <span class="k">assert</span> <span class="n">event_manager</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">context</span> <span class="ow">is</span> \
+               <span class="n">set_of_context</span><span class="p">[</span><span class="n">event_manager</span><span class="o">.</span><span class="n">buffer</span><span class="o">.</span><span class="n">context</span><span class="p">]</span>
+
+        <span class="c1"># Note that the raw buffer is identical to the bytes object</span>
+        <span class="c1"># that you instantiated earlier.</span>
+</pre></div>
+</div>
+<p>Okay, we have finished to acquire the required number of images. Now we tear it down. First, stop acquisition and flush the event queue.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Stop image acquisition. Note that TLSimu cannot announce or revoke</span>
+<span class="c1"># during acquisition, stop before revoking.</span>
+<span class="n">data_stream</span><span class="o">.</span><span class="n">stop_acquisition</span><span class="p">(</span>
+    <span class="n">ACQ_STOP_FLAGS_LIST</span><span class="o">.</span><span class="n">ACQ_STOP_FLAGS_KILL</span>
+<span class="p">)</span>
+<span class="n">data_stream</span><span class="o">.</span><span class="n">flush_buffer_queue</span><span class="p">(</span>
+    <span class="n">ACQ_QUEUE_TYPE_LIST</span><span class="o">.</span><span class="n">ACQ_QUEUE_ALL_DISCARD</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Here’s another tear down. Stop acquisition and stop monitoring <code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_NEW_BUFFER</span></code> event. Then revoke the announced raw buffers calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">revoke_buffer()</span></code> method.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Unregister the registered event.</span>
+<span class="n">event_manager</span><span class="o">.</span><span class="n">unregister_event</span><span class="p">()</span>
+
+<span class="c1"># Revoke the buffers.</span>
+<span class="c1"># Stop image acquisition on the transmitter side.</span>
+<span class="n">remote_device</span><span class="o">.</span><span class="n">AcquisitionStop</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_buffers</span><span class="p">):</span>
+    <span class="c1"># You may have something to do with the revoked user data.</span>
+    <span class="n">buffer_token</span> <span class="o">=</span> <span class="n">data_stream</span><span class="o">.</span><span class="n">revoke_buffer</span><span class="p">(</span><span class="n">announced_buffers</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="s1">&#39;Buffer #</span><span class="si">{0}</span><span class="s1"> has been revoked.&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">buffer_token</span><span class="o">.</span><span class="n">context</span><span class="p">)</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+<p>That’s all. We hope you have got feeling of handling events with the GenTL-Python Binding.</p>
+</div>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../index.html">
+              <img class="logo" src="../_static/genicam_logo.png" alt="Logo"/>
+            </a></p>
+  <div>
+    <h4>Previous topic</h4>
+    <p class="topless"><a href="handling_events.html"
+                          title="previous chapter">Handling Events</a></p>
+  </div>
+  <div>
+    <h4>Next topic</h4>
+    <p class="topless"><a href="../reference/index.html"
+                          title="next chapter">Reference</a></p>
+  </div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/tutorials/handling_event_new_buffer.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../reference/index.html" title="Reference"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="handling_events.html" title="Handling Events"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Tutorials</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Handling EVENT_NEW_BUFFER</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright European Machine Vision Association.
+      Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    </div>
+  </body>
+</html>

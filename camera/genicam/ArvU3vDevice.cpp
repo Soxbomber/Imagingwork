@@ -716,13 +716,14 @@ bool ArvU3vDevice::enableStream(ArvStreamParams& out)
                                    ? reqTrailer : alignedMax;
 
     const uint32_t siPayloadSize  =
-        (reqPayload > 0 && reqPayload <= alignedMax)
-        ? static_cast<uint32_t>(reqPayload) : alignedMax;
-    const uint32_t siPayloadCount =
-        (siPayloadSize > 0)
-        ? static_cast<uint32_t>(reqPayload / siPayloadSize) : 1;
-    const uint32_t siTransfer1 = alignUp32(
-        static_cast<uint32_t>(reqPayload % siPayloadSize), alignment);
+        // ── 핵심 최적화: payloadSize를 전체 reqPayload와 동일하게 설정 ──────
+        // payloadCount = reqPayload / payloadSize = 1 → bulkRead 1회로 수신
+        // libusb가 내부적으로 maxPacketSize 단위로 분할하므로 드라이버 레벨에서는 OK
+        // 이전: payloadSize=maxAckTransfer(512KB~1MB) → payloadCount=9회 → 150ms+
+        // 이후: payloadSize=reqPayload(4.8MB) → payloadCount=1 → ~15ms
+        static_cast<uint32_t>(reqPayload);
+    const uint32_t siPayloadCount = 1;
+    const uint32_t siTransfer1    = 0;  // 나머지 없음
     const uint32_t siTransfer2 = 0;
 
     qDebug("ArvU3vDevice::enableStream: "

@@ -1,0 +1,326 @@
+
+
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Handling GenTL Module Objects &#8212; The GenICam Python Bindings  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/bizstyle.css" />
+    
+    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <script src="../_static/sphinx_highlight.js"></script>
+    <script src="../_static/bizstyle.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Handling Events" href="handling_events.html" />
+    <link rel="prev" title="Tutorials" href="index.html" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <!--[if lt IE 9]>
+    <script src="_static/css3-mediaqueries.js"></script>
+    <![endif]-->
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="handling_events.html" title="Handling Events"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Tutorials"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Tutorials</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Handling GenTL Module Objects</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="handling-gentl-module-objects">
+<h1>Handling GenTL Module Objects<a class="headerlink" href="#handling-gentl-module-objects" title="Permalink to this heading">¶</a></h1>
+<p>The following class diagram shows relationship between the Python classes those are provided as Python package <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl.py</span></code>. In this section, we will learn how to manipulate those classes in Python code.</p>
+<div class="figure align-center">
+<p class="plantuml">
+<img src="../_images/plantuml-f824ccbadacea7b83dfdac23c3d33e522687f5c4.png" alt="&#64;startuml
+
+'left to right direction
+top to bottom direction
+' up: Arrow goes up.
+' down: Arrow goes down
+' left: Arrow goes from right to left.
+' right: Arrow goes from left to right.
+
+'style options 
+skinparam circledCharacterRadius 11
+skinparam circledCharacterFontSize 12
+skinparam classFontSize 16
+skinparam classAttributeFontSize 16
+skinparam arrowFontSize 16
+hide empty members
+
+class Consumer
+
+package gentl.py {
+    class GenTLProducer
+    abstract class IEventCapableModule
+        interface IEventCapableModule
+    class System
+    class InterfaceInfo
+    class Interface
+    class DeviceInfo
+    class Device
+    class DataStream
+}
+
+Consumer &quot;1&quot; .down.&gt; &quot;1&quot; GenTLProducer : &lt;&lt;create&gt;&gt;
+
+GenTLProducer &quot;1&quot; .down.&gt; &quot;1&quot; System : &lt;&lt;create&gt;&gt;
+
+System .down.|&gt; IEventCapableModule
+System &quot;1&quot; *-right-&gt; &quot;*&quot; InterfaceInfo 
+InterfaceInfo &quot;1&quot; .down.&gt; &quot;1&quot; Interface : &lt;&lt;create&gt;&gt;
+Interface &quot;1&quot;.down.|&gt; IEventCapableModule
+Interface &quot;1&quot; *-right-&gt; &quot;*&quot; DeviceInfo 
+DeviceInfo &quot;1&quot; .down.&gt; &quot;1&quot; Device : &lt;&lt;create&gt;&gt;
+Device .down.|&gt; IEventCapableModule
+Device &quot;1&quot; .down.&gt; &quot;*&quot; DataStream : &lt;&lt;create&gt;&gt;
+DataStream .down.|&gt; IEventCapableModule
+
+&#64;enduml
+"/>
+</p>
+</div>
+<p>The following import statements are required for this tutorial.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">genicam.gentl</span> <span class="kn">import</span> <span class="n">DEVICE_ACCESS_FLAGS_LIST</span>
+<span class="kn">from</span> <span class="nn">genicam.gentl</span> <span class="kn">import</span> <span class="n">GenTLProducer</span><span class="p">,</span> <span class="n">Port</span>
+<span class="kn">from</span> <span class="nn">genicam.gentl</span> <span class="kn">import</span> <span class="n">ClosedException</span><span class="p">,</span> <span class="n">InvalidHandleException</span>
+<span class="kn">from</span> <span class="nn">genicam.genapi</span> <span class="kn">import</span> <span class="n">NodeMap</span><span class="p">,</span> <span class="n">AbstractPort</span><span class="p">,</span> <span class="n">EAccessMode</span>
+</pre></div>
+</div>
+<p>And prepare a path name to the target CTI file as follow. We use TLSimu as a target GenTL Producer for this tutorial.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="n">path_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s1">&#39;C:/Projects/genicam&#39;</span><span class="p">,</span> <span class="s1">&#39;bin&#39;</span><span class="p">,</span> <span class="s1">&#39;Win64_x64&#39;</span><span class="p">,</span> <span class="s1">&#39;TLSimu.cti&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>First, instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">GenTLProducer</span></code> object calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">create_producer()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">producer</span> <span class="o">=</span> <span class="n">GenTLProducer</span><span class="o">.</span><span class="n">create_producer</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Then open a CTI file calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">open()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">producer</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">path_name</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Having called the <code class="xref py py-meth docutils literal notranslate"><span class="pre">open()</span></code> method, the <code class="xref py py-class docutils literal notranslate"><span class="pre">GenTLProducer</span></code> object will open the specified CTI file and eventually call <code class="xref py py-func docutils literal notranslate"><span class="pre">GCInitLib()</span></code> function internally. It will allow you to use the funtionality that the target GenTL Producer provides.</p>
+<p>Next, instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">System</span></code> object calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">create_system()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">system</span> <span class="o">=</span> <span class="n">producer</span><span class="o">.</span><span class="n">create_system</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Then open the GenTL System module calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">open()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">system</span><span class="o">.</span><span class="n">open</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>To instantiate an <code class="xref py py-class docutils literal notranslate"><span class="pre">Interface</span></code> object, now you have to update the interface information list first that the <code class="xref py py-class docutils literal notranslate"><span class="pre">System</span></code> object is holding calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">update_interface_info_list()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">system</span><span class="o">.</span><span class="n">update_interface_info_list</span><span class="p">(</span><span class="mi">1000</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Here you can instantiate an <code class="xref py py-class docutils literal notranslate"><span class="pre">Interface</span></code> object supplying an index to <code class="xref py py-class docutils literal notranslate"><span class="pre">InterfaceInfo</span></code> object calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">create_interface()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">interface_info_list</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">create_interface</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>And open the GenTL Interface module calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">open()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span><span class="o">.</span><span class="n">open</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>By the way, you can get the number of items in the property using Python’s built-in <code class="xref py py-func docutils literal notranslate"><span class="pre">len()</span></code> function. You can apply this trick to other information <code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code> properties.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">num_of_interfaces</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">system</span><span class="o">.</span><span class="n">interface_info_list</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Next, we instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">Device</span></code> object. To instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">Device</span></code> object you have to update the device information list that the <code class="xref py py-class docutils literal notranslate"><span class="pre">Interface</span></code> object is holding calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">update_device_info_list()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">interface</span><span class="o">.</span><span class="n">update_device_info_list</span><span class="p">(</span><span class="mi">1000</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Here you can instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">Device</span></code> object calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">create_device()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">device</span> <span class="o">=</span> <span class="n">interface</span><span class="o">.</span><span class="n">device_info_list</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">create_device</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>And open the GenTL Device module calling <code class="xref py py-meth docutils literal notranslate"><span class="pre">open()</span></code> method. You can specify either access mode from <code class="xref py py-class docutils literal notranslate"><span class="pre">DEVICE_ACCESS_FLAGS_LIST</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">device</span><span class="o">.</span><span class="n">open</span><span class="p">(</span>
+    <span class="n">DEVICE_ACCESS_FLAGS_LIST</span><span class="o">.</span><span class="n">DEVICE_ACCESS_EXCLUSIVE</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Finally, we instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object defined by <code class="xref py py-mod docutils literal notranslate"><span class="pre">genapi</span></code> module that is out of scope of this documentation. In general, when we use a <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object, we connect a remote device’s port to the <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object. To connect a port to a <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object, we call <code class="xref py py-meth docutils literal notranslate"><span class="pre">connect()</span></code> method of the <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object. The method takes a class that is derived from <code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractPort</span></code> class which is also defined by <code class="xref py py-mod docutils literal notranslate"><span class="pre">genapi</span></code> module. So now we define own concrete port class deriving from <code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractPort</span></code> class here.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">ConcretePort</span><span class="p">(</span><span class="n">AbstractPort</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gentl_port</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_assign_port_impl</span><span class="p">(</span><span class="n">gentl_port</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">is_open</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">False</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">True</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">length</span><span class="p">):</span>
+        <span class="n">buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">buffer</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">open</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gentl_port_obj</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_assign_port_impl</span><span class="p">(</span><span class="n">gentl_port_obj</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">get_access_mode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">EAccessMode</span><span class="o">.</span><span class="n">RW</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_open</span> <span class="k">else</span> <span class="n">EAccessMode</span><span class="o">.</span><span class="n">NA</span>
+
+    <span class="k">def</span> <span class="nf">_assign_port_impl</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="c1"># Check if the object is a GenTL Port module object.</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Port</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_gentl_port</span> <span class="o">=</span> <span class="n">obj</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s1">&#39;Supplied object is not a GenTL Port object.&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>And we instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">ConcretePort</span></code> object. By design, its constructor takes a <code class="xref py py-class docutils literal notranslate"><span class="pre">Port</span></code> object that is defined by the <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> module as the parameter and now we want to instantiate it with our remote device’s port so we pass the <code class="xref py py-class docutils literal notranslate"><span class="pre">Port</span></code> object that is returned by <code class="xref py py-attr docutils literal notranslate"><span class="pre">remote_port</span></code> attribute of the <code class="xref py py-class docutils literal notranslate"><span class="pre">Device</span></code> object:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">concrete_port</span> <span class="o">=</span> <span class="n">ConcretePort</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Next, download a GenICam device description file from the remote device. First, let check where the file is located:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Expected format: &#39;Local:DIDEV.xml;300;38a4&#39;</span>
+<span class="n">url</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="o">.</span><span class="n">url_info_list</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">url</span>
+</pre></div>
+</div>
+<p>Then parse it:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">location</span><span class="p">,</span> <span class="n">others</span> <span class="o">=</span> <span class="n">url</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;:&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">file_name</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">size</span> <span class="o">=</span> <span class="n">others</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;;&#39;</span><span class="p">)</span>
+<span class="n">address</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+<span class="n">size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Now we’re ready for downloading the device description file. Having called the following code, you will get the content of a GenICam device description file:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">file_content</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <code class="xref py py-meth docutils literal notranslate"><span class="pre">read()</span></code> method our port class object returns a Python’s builit-in <code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code> objoect that is consisting of a Python’s built-in <code class="xref py py-class docutils literal notranslate"><span class="pre">bytes</span></code> object which holds the read out data and an <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code> object to represents the size of the read out data. Now we need the read out data itself so we get that accessing index #1 of the returned object. If you need the size, use index #0.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">ddf</span> <span class="o">=</span> <span class="n">file_content</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>Here we instantiate a <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> object and load the downloaded device description file content on it.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">node_map</span> <span class="o">=</span> <span class="n">NodeMap</span><span class="p">()</span>
+<span class="n">node_map</span><span class="o">.</span><span class="n">load_xml_from_string</span><span class="p">(</span><span class="n">ddf</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>And we only have the last step. Let’s connect the remote port to the node map object so that GenApi can interact with the remote device. The <code class="xref py py-meth docutils literal notranslate"><span class="pre">connect()</span></code> method of <code class="xref py py-class docutils literal notranslate"><span class="pre">NodeMap</span></code> class takes a port class object which derives from <code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractPort</span></code> class of <code class="xref py py-mod docutils literal notranslate"><span class="pre">genapi</span></code> module and a <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code> object that holds the name of the port.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">node_map</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">concrete_port</span><span class="p">,</span> <span class="n">device</span><span class="o">.</span><span class="n">remote_port</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Okay, now you have finished the minimum preparation for the following possible manipulations. Regarding image acquisition that involves <code class="xref py py-class docutils literal notranslate"><span class="pre">DataStream</span></code> class, <code class="xref py py-class docutils literal notranslate"><span class="pre">Buffer</span></code> class and an event manager class, you will learn about it in the following chapter.</p>
+<div class="section" id="releasing-external-resources">
+<h2>Releasing External Resources<a class="headerlink" href="#releasing-external-resources" title="Permalink to this heading">¶</a></h2>
+<p>Managing external resource is very important. In this section we learn about external resource management.</p>
+<p>Python manages objects’ lifetime using reference count. When the reference count reaches to zero, the <code class="xref py py-meth docutils literal notranslate"><span class="pre">__del__()</span></code> method is called then the object is destructed.</p>
+<p>However, even though the GenTL-Pyton Binding has been designed to release the external resources such as a CTI file when it’s destructed but there are cases where reference count doesn’t reach to zero by some reasons so you should not expect the <code class="xref py py-meth docutils literal notranslate"><span class="pre">__del__()</span></code> method is called in any case to realse external resources.</p>
+<p>Having that fact, you should explicitly release the external resources calling its <code class="xref py py-meth docutils literal notranslate"><span class="pre">close()</span></code> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">producer</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Or using <code class="docutils literal notranslate"><span class="pre">with</span></code> statement is another way to go:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">GenTLProducer</span><span class="o">.</span><span class="n">create_producer</span><span class="p">()</span> <span class="k">as</span> <span class="n">producer</span><span class="p">:</span>
+    <span class="n">producer</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">path_name</span><span class="p">)</span>
+    <span class="n">system</span> <span class="o">=</span> <span class="n">producer</span><span class="o">.</span><span class="n">create_system</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Using <code class="docutils literal notranslate"><span class="pre">with</span></code> statement we can be sure that the <code class="xref py py-class docutils literal notranslate"><span class="pre">GenTLProducer</span></code> object will release the external resources once it goes out of the scope. It gives you the same effect with calling the <code class="xref py py-meth docutils literal notranslate"><span class="pre">close()</span></code> method.</p>
+<p>Anyway, leaving hooked external resources is not good thing at all so please carefylly consider a way to release the external resources for sure.</p>
+</div>
+</div>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../index.html">
+              <img class="logo" src="../_static/genicam_logo.png" alt="Logo"/>
+            </a></p>
+  <div>
+    <h3><a href="../index.html">Table of Contents</a></h3>
+    <ul>
+<li><a class="reference internal" href="#">Handling GenTL Module Objects</a><ul>
+<li><a class="reference internal" href="#releasing-external-resources">Releasing External Resources</a></li>
+</ul>
+</li>
+</ul>
+
+  </div>
+  <div>
+    <h4>Previous topic</h4>
+    <p class="topless"><a href="index.html"
+                          title="previous chapter">Tutorials</a></p>
+  </div>
+  <div>
+    <h4>Next topic</h4>
+    <p class="topless"><a href="handling_events.html"
+                          title="next chapter">Handling Events</a></p>
+  </div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/tutorials/handling_gentl_modules.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="handling_events.html" title="Handling Events"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Tutorials"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Tutorials</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Handling GenTL Module Objects</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright European Machine Vision Association.
+      Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    </div>
+  </body>
+</html>

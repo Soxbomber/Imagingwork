@@ -1,0 +1,81 @@
+***************
+Handling Events
+***************
+
+Our lives never get be static. As long as we live in own life, everything is lead by events as stimulation. As people who are trying to model dynamic systems, handling events is one of the important features and the GenTL Standard actually covers it. A basic usage of the event feature that GenTL defines goes like this:
+
+  1. Start monitoring an event of interest.
+  2. Get noticed every time when the event happens.
+  3. Acquire newly updated event data if needed.
+  4. Stop monitoring the event. 
+
+To handle events, API consumers manipulate unique classes those derive from :class:`~gentl.BaseEventManager` class. The following class diagram shows the relationship between relevant classes. The image is stretched following the browser size, or you could see it in the original size opening the image in another tab/window.
+
+.. uml:: ../uml/class/events.uml
+  :align: center
+
+As we were hinted in the beginning, we interact with events using classes which derive from :class:`~gentl.BaseEventManager` class. Every event class corresponds to a unique event type that is defined in :class:`~gentl.EVENT_TYPE_LIST` (and technically speaking it possible to design your own custom class, too) and every event class provides event data such as a buffer filled up with an image, feature name, or feature value, as its properties for its consumer. 
+
+If we interact with :const:`~gentl.EVENT_TYPE_LIST.EVENT_ERROR`, we manipulate an :class:`~gentl.EventManagerError` class object to access its event data. If we interact with :const:`~gentl.EVENT_TYPE_LIST.EVENT_FEATURE_CHANGE`, we manipulate an :class:`~gentl.EventManagerFeatureChange` object for the same purpose. Yes, the class names follow a convention such that ``EventManager`` + ``EventName``. It's not necessary but it should be helpful anyway.
+
+Every class that derives from :class:`~gentl.BaseEventManager` class should have properties to provide a way to access its event data. For example, :class:`~gentl.EventManagerNewBuffer` class provides :attr:`~gentl.EventManagerNewBuffer.buffer` property to allow consumers to access the delivered image data and its user data tagged on the raw buffer; :class:`~gentl.EventManagerError` class provides :attr:`~gentl.EventManagerError.gc_error` property and :attr:`~gentl.EventManagerError.description` property to report the error code and the description.
+
+So let's try to walk through the following steps to see how we can interact with the event data of :const:`~gentl.EVENT_ERROR` event:
+
+The following import statement is required for this tutorial.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_events.py
+  :language: python
+  :dedent: 0
+  :start-after: [begin] the import statement block.
+  :end-before: [end]
+
+First, accessing a :class:`~gentl.Device` object of TLSimu, instantiate a :class:`~gentl.DataStream` object calling :meth:`~gentl.Device.open_data_stream` method of the :class:`~gentl.Device` object. In the following example, it opens the first :class:`~gentl.DataStream` object.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_events.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] instantiate a datastream object.
+  :end-before: [end]
+
+Next, register :class:`~gentl.EVENT_TYPE_LIST.EVENT_ERROR` event on the :class:`~gentl.DataStream` object. Then you'll get an :class:`~gentl.EventToken` object as its return. You have nothing to do with it. Everything will be fine if you just pass it to the constructor of :class:`~gentl.EventManagerError` class later.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_events.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] instantiate an eventtoken object.
+  :end-before: [end]
+
+Then instantiate an :class:`~gentl.EventManagerError` object with :class:`~gentl.EventToken` object. Once you instantiated an event manager object, there's nothing to do with the event source module about the event. In this case, the source of the event is a :class:`~gentl.Device` object. Like :class:`~gentl.Device` class, classes those realize :class:`~gentl.IEventCapableModule`, they are used to just register event types to start monitoring them. Checking status of the event queue, fetching event data, stopping monitoring the event, or the other event related manipulations all close in the event manager class objects those derive from :class:`~gentl.BaseEventManager` class.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_events.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] instantiate an eventmanager object.
+  :end-before: [end]
+
+Good, you've got an :class:`~gentl.EventManagerError` object. As long as you hold it, you can monitor the target event. So now we need to intentionally cause an error event to let the :class:`~gentl.DataStream` object to raise an exception (the actual GenTL function must be returning an error code at the time). As an example, we try to register an unsupported event on the object. It will raise :class:`~gentl.NotImplementedException` and we try to get the error over :class:`~gentl.EventManagerError` class object.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_events.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] cause an expected exception.
+  :end-before: [end]
+
+Now we can explicitly notice the error accessing the event data over :attr:`~gentl.EventManager.gc_error` and :attr:`~gentl.EventManager.description` properties of the :class:`~gentl.EventManagerError` object. First, you should be able to confirm :attr:`~gentl.IEventManager.num_in_queue` is greater than 0 because we have already caused an error. Then to update the event data that is being held by :class:`~gentl.EventManagerError` object, we call :meth:`~gentl.IEventManager¥.update_event_data` method of it. Having called that method, its properties, :attr:`~gentl.EventManagerError.gc_error` and :attr:`~gentl.EventManagerError.description` are now up to date. The :meth:`~gentl.BaseEventManager.update_event_data` method waits the duration that is specified by its parameter, then it raises :class:`~gentl.TimeoutException` exception if nothing happened during the period.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_events.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] get noticed the event.
+  :end-before: [end]
+
+After that, here we have reached to a place where we tear it down. To tear it down, flush the event queue and unregister the event. As we were mentioned earlier, everything is closed in the event manager class object.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_events.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] tear down.
+  :end-before: [end]
+
+Having that procedures you have stopped monitoring the event and you have been free from the duty. That's all about the basic knowledge about handling events with the GenTL-Python Binding. You may learn about other events in the following chapters.

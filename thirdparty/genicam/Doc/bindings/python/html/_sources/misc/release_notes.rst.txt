@@ -1,0 +1,45 @@
+*************
+Release Notes
+*************
+
+v1.0.0
+======
+
+- Release the Python module as :mod:`~genicam`.
+
+v0.1.1
+======
+
+- Merge fixes provided by Mr. Thies Moeller.
+
+v0.1.0
+======
+
+- Rename :class:`~genicam.gentl.BaseEventManager` :class:`~genicam.gentl.AbstractEventManager`.
+
+v0.0.4
+======
+
+- Let :meth:`~genicam.gentl.DataStream.queue_buffer` raise an exception instead of returning a status code.
+- Let :meth:`~genicam.gentl.DataStream.flush_buffer_queue` raise an exception instead of returning a status code.
+- Let :meth:`~genicam.gentl.DataStream.start_acquisition` raise an exception instead of returning a status code.
+- Let :meth:`~genicam.gentl.DataStream.stop_acquisition` raise an exception instead of returning a status code.
+
+v0.0.3
+======
+
+- Add support of :const:`~genicam.gentl.EVENT_TYPE_LIST.EVENT_REMOTE_DEVICE`.
+
+v0.0.2
+======
+
+- Add support of :const:`~genicam.gentl.EVENT_TYPE_LIST.EVENT_ERROR`.
+- Add support of :const:`~genicam.gentl.EVENT_TYPE_LIST.EVENT_FEATURE_CHANGE`.
+- Add support of :const:`~genicam.gentl.EVENT_TYPE_LIST.EVENT_FEATURE_INVALIDATE`.
+- Add support of :const:`~genicam.gentl.EVENT_TYPE_LIST.EVENT_MODULE`.
+
+v0.0.1
+======
+
+Official initial release for review.
+

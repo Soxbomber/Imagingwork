@@ -1,108 +1,104 @@
 #pragma once
 // ============================================================
 // GenApiController.h
-// GenICam 파라미터 읽기/쓰기 컨트롤러
+// GenICam SDK (v3.5) 기반 카메라 NodeMap 제어
 //
-// 사용 예:
-//   GenApiController ctrl(device, genApiInfo);
-//
-//   // 해상도 변경
-//   ctrl.setInteger("Width",  1920);
-//   ctrl.setInteger("Height", 1080);
-//
-//   // ExposureTime (μs)
-//   ctrl.setFloat("ExposureTime", 5000.0); // 5ms
-//
-//   // Gain
-//   ctrl.setFloat("Gain", 2.0); // 2dB
-//
-//   // FrameRate
-//   ctrl.setFloat("AcquisitionFrameRate", 30.0);
-//
-//   // Enumeration
-//   ctrl.setEnum("AcquisitionMode", "Continuous");
-//
-// USB3 Vision (ArvU3vDevice) 와 GigE Vision (GigEDevice) 모두 지원:
-//   공통 인터페이스(IRegisterDevice)를 통해 의존성 분리
+// SDK 없이 빌드 시: HAVE_GENICAM_SDK 미정의 → 스텁 클래스 사용
+// SDK 있을 시:      thirdparty/genicam 에 압축 해제 후 CMake 재구성
 // ============================================================
-
-#include "ArvGenApiXml.h"
-#include <QString>
-#include <QVariant>
-#include <functional>
 #include <cstdint>
+#include <string>
+#include <vector>
+#include <functional>
 
-// ── 레지스터 장치 공통 인터페이스 ─────────────────────────────────────────────
-// U3V / GigE 양쪽에서 구현
-class IRegisterDevice {
+#ifdef HAVE_GENICAM_SDK
+
+// GenICam SDK 헤더
+#include <GenApi/GenApi.h>
+#include <GenApi/NodeMapFactory.h>
+#include <GenApi/Pointer.h>
+
+namespace GA = GENAPI_NAMESPACE;
+namespace GC = GENICAM_NAMESPACE;
+
+using PortReadFn  = std::function<void(void* buf, int64_t addr, int64_t len)>;
+using PortWriteFn = std::function<void(const void* buf, int64_t addr, int64_t len)>;
+
+// ── IPort 구현: GigEDevice ↔ GenApi NodeMap 브리지 ───────────────────────────
+class GvspPort : public GA::IPort
+{
 public:
-    virtual ~IRegisterDevice() = default;
-    virtual bool readRegister (uint32_t addr, uint32_t& val)        = 0;
-    virtual bool writeRegister(uint32_t addr, uint32_t  val)        = 0;
-    virtual bool readMemory   (uint32_t addr, uint8_t* buf, uint32_t sz) = 0;
-    virtual bool writeMemory  (uint32_t addr, const uint8_t* buf, uint32_t sz) = 0;
+    GvspPort(PortReadFn r, PortWriteFn w) : m_read(r), m_write(w) {}
+    void Read (void*       buf, int64_t addr, int64_t len) override { m_read (buf, addr, len); }
+    void Write(const void* buf, int64_t addr, int64_t len) override { m_write(buf, addr, len); }
+    GA::EAccessMode GetAccessMode() const override { return GA::RW; }
+private:
+    PortReadFn  m_read;
+    PortWriteFn m_write;
 };
 
-// ── GenApiController ──────────────────────────────────────────────────────────
+// ── GenApiController (SDK 버전) ───────────────────────────────────────────────
 class GenApiController
 {
 public:
-    explicit GenApiController(IRegisterDevice* dev,
-                              const ArvGenApiInfo& info);
+    GenApiController() = default;
+    ~GenApiController() { reset(); }
 
-    // ── Integer 파라미터 ──────────────────────────────────────────────────────
-    // Width, Height, OffsetX, OffsetY, BinningH, BinningV 등
-    bool getInteger(const QString& name, int64_t& value) const;
-    bool setInteger(const QString& name, int64_t  value);
+    bool loadXml(const std::vector<uint8_t>& xmlData, bool isZipped,
+                 PortReadFn readFn, PortWriteFn writeFn);
 
-    // ── Float 파라미터 ────────────────────────────────────────────────────────
-    // ExposureTime(μs), Gain(dB), AcquisitionFrameRate(Hz)
-    bool getFloat(const QString& name, double& value) const;
-    bool setFloat(const QString& name, double  value);
+    bool isLoaded() const { return m_nodeMap != nullptr; }
 
-    // ── Enumeration 파라미터 ─────────────────────────────────────────────────
-    // AcquisitionMode("Continuous","SingleFrame"), PixelFormat, TriggerMode
-    bool getEnum(const QString& name, QString& entry) const;
-    bool setEnum(const QString& name, const QString& entry);
+    bool getInteger(const char* name, int64_t& out) const;
+    bool setInteger(const char* name, int64_t val);
+    bool getFloat  (const char* name, double&  out) const;
+    bool setFloat  (const char* name, double   val);
+    bool getString (const char* name, std::string& out) const;
+    bool getEnum   (const char* name, std::string& out) const;
+    bool setEnum   (const char* name, const char* val);
+    bool execute   (const char* name);
+    bool getRegisterAddress(const char* name, int64_t& addr, int64_t& len) const;
 
-    // ── Command 실행 ─────────────────────────────────────────────────────────
-    bool execute(const QString& name);
+    // 노드 존재 여부 확인
+    bool hasNode(const char* name) const;
 
-    // ── 범위 조회 ─────────────────────────────────────────────────────────────
-    bool getRange(const QString& name,
-                  double& minVal, double& maxVal, double& step) const;
+    // 노드 타입 조회 (ExposureTime이 Integer/Float인지 구분 등)
+    enum class NodeType { Unknown, Integer, Float, String, Enum, Command, Boolean };
+    NodeType nodeType(const char* name) const;
 
-    // ── Enumeration 항목 목록 조회 ────────────────────────────────────────────
-    QStringList enumEntries(const QString& name) const;
-
-    // ── 노드 존재 여부 ────────────────────────────────────────────────────────
-    bool hasNode(const QString& name) const;
-    GenApiNodeType nodeType(const QString& name) const;
-
-    // ── 편의: 카메라 주요 파라미터 일괄 조회 ──────────────────────────────────
-    struct CameraParams {
-        int64_t width{};
-        int64_t height{};
-        int64_t offsetX{};
-        int64_t offsetY{};
-        double  exposureTime{};   // μs
-        double  gain{};           // dB
-        double  frameRate{};      // Hz
-        QString acquisitionMode;
-        QString pixelFormat;
-        bool    valid{false};
-    };
-    CameraParams readAll() const;
+    std::vector<std::string> getNodeNames() const;
+    GA::INodeMap* nodeMap() const { return m_nodeMap; }
 
 private:
-    // 레지스터 read/write (빅/리틀엔디안 처리 포함)
-    bool regRead32 (const GenApiNode& node, int64_t& val) const;
-    bool regWrite32(const GenApiNode& node, int64_t  val);
-    bool regRead64 (const GenApiNode& node, int64_t& val) const;
-    bool regWrite64(const GenApiNode& node, int64_t  val);
-    bool regReadFloat (const GenApiNode& node, double& val) const;
-    bool regWriteFloat(const GenApiNode& node, double  val);
-
-    IRegisterDevice*     m_dev;
-    const ArvGenApiInfo& m_info;
+    void reset();
+    GvspPort*     m_port    {nullptr};
+    GA::INodeMap* m_nodeMap {nullptr};
 };
+
+#else  // HAVE_GENICAM_SDK 미정의: 스텁 (빌드만 통과)
+
+using PortReadFn  = std::function<void(void* buf, int64_t addr, int64_t len)>;
+using PortWriteFn = std::function<void(const void* buf, int64_t addr, int64_t len)>;
+
+class GenApiController
+{
+public:
+    bool loadXml(const std::vector<uint8_t>&, bool,
+                 PortReadFn, PortWriteFn) { return false; }
+    bool isLoaded() const { return false; }
+    bool getInteger(const char*, int64_t&)  const { return false; }
+    bool setInteger(const char*, int64_t)         { return false; }
+    bool getFloat  (const char*, double&)   const { return false; }
+    bool setFloat  (const char*, double)          { return false; }
+    bool getString (const char*, std::string&) const { return false; }
+    bool getEnum   (const char*, std::string&) const { return false; }
+    bool setEnum   (const char*, const char*)       { return false; }
+    bool execute   (const char*)                    { return false; }
+    bool getRegisterAddress(const char*, int64_t&, int64_t&) const { return false; }
+    bool hasNode(const char*) const { return false; }
+    enum class NodeType { Unknown, Integer, Float, String, Enum, Command, Boolean };
+    NodeType nodeType(const char*) const { return NodeType::Unknown; }
+    std::vector<std::string> getNodeNames() const { return {}; }
+};
+
+#endif  // HAVE_GENICAM_SDK

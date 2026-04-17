@@ -1,0 +1,169 @@
+
+
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Release Notes &#8212; The GenICam Python Bindings  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/bizstyle.css" />
+    
+    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <script src="../_static/sphinx_highlight.js"></script>
+    <script src="../_static/bizstyle.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Miscellaneous" href="index.html" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <!--[if lt IE 9]>
+    <script src="_static/css3-mediaqueries.js"></script>
+    <![endif]-->
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="index.html" title="Miscellaneous"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Miscellaneous</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Release Notes</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="release-notes">
+<h1>Release Notes<a class="headerlink" href="#release-notes" title="Permalink to this heading">¶</a></h1>
+<div class="section" id="v1-0-0">
+<h2>v1.0.0<a class="headerlink" href="#v1-0-0" title="Permalink to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Release the Python module as <code class="xref py py-mod docutils literal notranslate"><span class="pre">genicam</span></code>.</p></li>
+</ul>
+</div>
+<div class="section" id="v0-1-1">
+<h2>v0.1.1<a class="headerlink" href="#v0-1-1" title="Permalink to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Merge fixes provided by Mr. Thies Moeller.</p></li>
+</ul>
+</div>
+<div class="section" id="v0-1-0">
+<h2>v0.1.0<a class="headerlink" href="#v0-1-0" title="Permalink to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Rename <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEventManager</span></code> <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.AbstractEventManager" title="genicam.gentl.AbstractEventManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">AbstractEventManager</span></code></a>.</p></li>
+</ul>
+</div>
+<div class="section" id="v0-0-4">
+<h2>v0.0.4<a class="headerlink" href="#v0-0-4" title="Permalink to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Let <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.DataStream.queue_buffer" title="genicam.gentl.DataStream.queue_buffer"><code class="xref py py-meth docutils literal notranslate"><span class="pre">queue_buffer()</span></code></a> raise an exception instead of returning a status code.</p></li>
+<li><p>Let <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.DataStream.flush_buffer_queue" title="genicam.gentl.DataStream.flush_buffer_queue"><code class="xref py py-meth docutils literal notranslate"><span class="pre">flush_buffer_queue()</span></code></a> raise an exception instead of returning a status code.</p></li>
+<li><p>Let <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.DataStream.start_acquisition" title="genicam.gentl.DataStream.start_acquisition"><code class="xref py py-meth docutils literal notranslate"><span class="pre">start_acquisition()</span></code></a> raise an exception instead of returning a status code.</p></li>
+<li><p>Let <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.DataStream.stop_acquisition" title="genicam.gentl.DataStream.stop_acquisition"><code class="xref py py-meth docutils literal notranslate"><span class="pre">stop_acquisition()</span></code></a> raise an exception instead of returning a status code.</p></li>
+</ul>
+</div>
+<div class="section" id="v0-0-3">
+<h2>v0.0.3<a class="headerlink" href="#v0-0-3" title="Permalink to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Add support of <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.EVENT_TYPE_LIST.EVENT_REMOTE_DEVICE" title="genicam.gentl.EVENT_TYPE_LIST.EVENT_REMOTE_DEVICE"><code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_REMOTE_DEVICE</span></code></a>.</p></li>
+</ul>
+</div>
+<div class="section" id="v0-0-2">
+<h2>v0.0.2<a class="headerlink" href="#v0-0-2" title="Permalink to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Add support of <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.EVENT_TYPE_LIST.EVENT_ERROR" title="genicam.gentl.EVENT_TYPE_LIST.EVENT_ERROR"><code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_ERROR</span></code></a>.</p></li>
+<li><p>Add support of <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.EVENT_TYPE_LIST.EVENT_FEATURE_CHANGE" title="genicam.gentl.EVENT_TYPE_LIST.EVENT_FEATURE_CHANGE"><code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_FEATURE_CHANGE</span></code></a>.</p></li>
+<li><p>Add support of <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.EVENT_TYPE_LIST.EVENT_FEATURE_INVALIDATE" title="genicam.gentl.EVENT_TYPE_LIST.EVENT_FEATURE_INVALIDATE"><code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_FEATURE_INVALIDATE</span></code></a>.</p></li>
+<li><p>Add support of <a class="reference internal" href="../reference/api_reference.html#genicam.gentl.EVENT_TYPE_LIST.EVENT_MODULE" title="genicam.gentl.EVENT_TYPE_LIST.EVENT_MODULE"><code class="xref py py-const docutils literal notranslate"><span class="pre">EVENT_MODULE</span></code></a>.</p></li>
+</ul>
+</div>
+<div class="section" id="v0-0-1">
+<h2>v0.0.1<a class="headerlink" href="#v0-0-1" title="Permalink to this heading">¶</a></h2>
+<p>Official initial release for review.</p>
+</div>
+</div>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../index.html">
+              <img class="logo" src="../_static/genicam_logo.png" alt="Logo"/>
+            </a></p>
+  <div>
+    <h3><a href="../index.html">Table of Contents</a></h3>
+    <ul>
+<li><a class="reference internal" href="#">Release Notes</a><ul>
+<li><a class="reference internal" href="#v1-0-0">v1.0.0</a></li>
+<li><a class="reference internal" href="#v0-1-1">v0.1.1</a></li>
+<li><a class="reference internal" href="#v0-1-0">v0.1.0</a></li>
+<li><a class="reference internal" href="#v0-0-4">v0.0.4</a></li>
+<li><a class="reference internal" href="#v0-0-3">v0.0.3</a></li>
+<li><a class="reference internal" href="#v0-0-2">v0.0.2</a></li>
+<li><a class="reference internal" href="#v0-0-1">v0.0.1</a></li>
+</ul>
+</li>
+</ul>
+
+  </div>
+  <div>
+    <h4>Previous topic</h4>
+    <p class="topless"><a href="index.html"
+                          title="previous chapter">Miscellaneous</a></p>
+  </div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/misc/release_notes.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="index.html" title="Miscellaneous"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Miscellaneous</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Release Notes</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright European Machine Vision Association.
+      Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    </div>
+  </body>
+</html>

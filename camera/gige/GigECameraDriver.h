@@ -15,7 +15,7 @@
 #include "ICameraDriver.h"
 #include "GigEDevice.h"
 #include "GigEStream.h"
-#include "../genicam/ArvGenApiXml.h"
+#include "../genicam/GenApiController.h"
 #include <QThread>
 #include <memory>
 #include <vector>
@@ -33,8 +33,7 @@ struct GigECameraCtx {
     QThread                     streamThread;
 
     // GenApi (AcquisitionStart/Stop 주소)
-    ArvCommandNode acquisitionStart;
-    ArvCommandNode acquisitionStop;
+    GenApiController genApi;  // GenICam SDK 기반 NodeMap 제어
 };
 
 class GigECameraDriver : public ICameraDriver
@@ -46,8 +45,12 @@ public:
 
     QList<DeviceInfo> EnumCameras()                                    override;
     bool StartGrabbing(const DeviceInfo& di, ImageViewerDock* dock)    override;
-    void StopGrabbing(const QString& serialnumber)                      override;
+    void StopGrabbing(const QString& description)                      override;
     void StopAll()                                                     override;
+
+    // Switch/Hub 환경: 유니캐스트 탐색용 카메라 IP 직접 등록
+    void addKnownIp(const QHostAddress& ip);
+    void clearKnownIps();
 
 private:
     void stopCtx(GigECameraCtx& ctx);
@@ -56,4 +59,5 @@ private:
     static QHostAddress findLocalIp(const QHostAddress& cameraIp);
 
     std::vector<std::unique_ptr<GigECameraCtx>> m_cameras;
+    QList<QHostAddress> m_knownIps;  // 유니캐스트 탐색용 카메라 IP 목록
 };

@@ -375,7 +375,7 @@ QList<DeviceInfo> UvcCameraDriver::EnumCameras()
                               ? info.deviceName() : info.description();
         const QString descr = info.deviceName();
         ctx->deviceinfo = { id++, name, descr, true };
-        ctx->deviceinfo.serialnumber = descr;
+        ctx->deviceinfo.serialNumber = descr;
 
         qDebug("UvcCameraDriver: found [%s]", qPrintable(name));
         result.append(ctx->deviceinfo);
@@ -391,7 +391,7 @@ bool UvcCameraDriver::StartGrabbing(const DeviceInfo& di,
     if (!dock) return false;
 
     for (auto& ctx : m_cameras) {
-        if (ctx->deviceinfo.serialnumber != di.serialnumber) continue;
+        if (ctx->deviceinfo.serialNumber != di.serialNumber) continue;
         if (!ctx->deviceinfo.isOpenable) return true;
 
         ctx->dock = dock;
@@ -440,14 +440,14 @@ bool UvcCameraDriver::StartGrabbing(const DeviceInfo& di,
     }
 
     qWarning("UvcCameraDriver: device not found [%s]",
-             qPrintable(di.serialnumber));
+             qPrintable(di.serialNumber));
     return false;
 }
 
-void UvcCameraDriver::StopGrabbing(const QString& serialnumber)
+void UvcCameraDriver::StopGrabbing(const QString& description)
 {
     for (auto& ctx : m_cameras) {
-        if (ctx->deviceinfo.serialnumber != serialnumber) continue;
+        if (ctx->deviceinfo.serialNumber != description) continue;
         stopCtx(*ctx);
         ctx->dock = nullptr;
         ctx->deviceinfo.isOpenable = true;

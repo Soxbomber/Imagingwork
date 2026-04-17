@@ -105,7 +105,7 @@ public:
 
     QList<DeviceInfo> EnumCameras()                                    override;
     bool StartGrabbing(const DeviceInfo& di, ImageViewerDock* dock)    override;
-    void StopGrabbing(const QString& serialnumber)                      override;
+    void StopGrabbing(const QString& description)                      override;
     void StopAll()                                                     override;
 
 private:

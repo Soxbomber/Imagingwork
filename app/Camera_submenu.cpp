@@ -2,6 +2,7 @@
 #include "ArvCameraDriver.h"
 #include "UvcCameraDriver.h"
 #include "GigECameraDriver.h"
+#include <QDebug>
 
 // ── 드라이버별 섹션명 ─────────────────────────────────────────────────────────
 static QString sectionName(ICameraDriver* driver,
@@ -117,7 +118,7 @@ void CamSubWindow::refreshDeviceList()
 
     QString curSection;
     for (const DeviceInfo& info : m_deviceManager->getDeviceList()) {
-        ICameraDriver* drv = m_driverMap.value(info.serialnumber);
+        ICameraDriver* drv = m_driverMap.value(info.serialNumber);
         const QString section = sectionName(drv, m_u3vDriver,
                                              m_uvcDriver, m_gigeDriver);
 
@@ -150,21 +151,22 @@ void CamSubWindow::refreshDeviceListFromHardware()
         m_u3vDriver = new ArvCameraDriver();
     const auto u3vList = m_u3vDriver->EnumCameras();
     for (const auto& di : u3vList)
-        m_driverMap[di.serialnumber] = m_u3vDriver;
+        m_driverMap[di.serialNumber] = m_u3vDriver;
 
     // ── 2. GigE Vision (GVCP/GVSP over UDP, 드라이버 불필요) ─────────────
     if (!m_gigeDriver)
         m_gigeDriver = new GigECameraDriver();
+
     const auto gigeList = m_gigeDriver->EnumCameras();
     for (const auto& di : gigeList)
-        m_driverMap[di.serialnumber] = m_gigeDriver;
+        m_driverMap[di.serialNumber] = m_gigeDriver;
 
     // ── 3. UVC (Qt5 Multimedia, 표준 드라이버) ────────────────────────────
     if (!m_uvcDriver)
         m_uvcDriver = new UvcCameraDriver();
     const auto uvcList = m_uvcDriver->EnumCameras();
     for (const auto& di : uvcList)
-        m_driverMap[di.serialnumber] = m_uvcDriver;
+        m_driverMap[di.serialNumber] = m_uvcDriver;
 
     // ── DeviceManager 갱신: U3V → GigE → UVC 순서 ───────────────────────
     QList<DeviceInfo> allDevices;
@@ -201,10 +203,10 @@ void CamSubWindow::onDeviceDoubleClicked(const DeviceInfo& deviceinfo)
 {
     if (!deviceinfo.isOpenable) return;
 
-    ICameraDriver* driver = m_driverMap.value(deviceinfo.serialnumber, nullptr);
+    ICameraDriver* driver = m_driverMap.value(deviceinfo.serialNumber, nullptr);
     if (!driver) {
         qWarning("CamSubWindow: no driver found for [%s]",
-                 qPrintable(deviceinfo.serialnumber));
+                 qPrintable(deviceinfo.serialNumber));
         return;
     }
 

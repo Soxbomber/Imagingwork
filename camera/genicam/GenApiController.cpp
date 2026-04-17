@@ -1,339 +1,259 @@
+// GenApiController.cpp
+// HAVE_GENICAM_SDK 정의 시에만 컴파일 (CMakeLists에서 thirdparty/genicam 설정 필요)
+#ifdef HAVE_GENICAM_SDK
+
+// ============================================================
+// GenApiController.cpp
+// GenICam SDK v3.5 기반 구현
+// ============================================================
 #include "GenApiController.h"
 #include <QDebug>
-#include <cstring>
-#include <cmath>
+#include <stdexcept>
 
-// ── 바이트 순서 변환 ──────────────────────────────────────────────────────────
-static inline uint32_t swap32(uint32_t v) {
-    return ((v&0xFF)<<24)|((v>>8&0xFF)<<16)|((v>>16&0xFF)<<8)|(v>>24);
-}
-static inline uint64_t swap64(uint64_t v) {
-    return (uint64_t(swap32(uint32_t(v)))<<32) | swap32(uint32_t(v>>32));
-}
+// GenICam 스마트 포인터 단축
+using IntPtr  = GA::CIntegerPtr;
+using FltPtr  = GA::CFloatPtr;
+using StrPtr  = GA::CStringPtr;
+using CmdPtr  = GA::CCommandPtr;
+using EnumPtr = GA::CEnumerationPtr;
+using RegPtr  = GA::CRegisterPtr;
 
-GenApiController::GenApiController(IRegisterDevice*     dev,
-                                   const ArvGenApiInfo& info)
-    : m_dev(dev), m_info(info)
-{}
-
-// ── 노드 존재 확인 ────────────────────────────────────────────────────────────
-bool GenApiController::hasNode(const QString& name) const
+// ── reset ────────────────────────────────────────────────────────────────────
+void GenApiController::reset()
 {
-    return m_info.nodes.contains(name);
+    // INodeMap 소유권은 CNodeMapFactory에 있으므로 delete 불가
+    // factory가 소멸될 때 자동 해제됨
+    m_nodeMap = nullptr;
+    delete m_port;
+    m_port = nullptr;
 }
 
-GenApiNodeType GenApiController::nodeType(const QString& name) const
+// ── loadXml ──────────────────────────────────────────────────────────────────
+bool GenApiController::loadXml(const std::vector<uint8_t>& xmlData,
+                                bool isZipped,
+                                PortReadFn readFn,
+                                PortWriteFn writeFn)
 {
-    const auto* n = m_info.get(name);
-    return n ? n->type : GenApiNodeType::Unknown;
-}
+    reset();
 
-// ── 레지스터 read (32bit) ─────────────────────────────────────────────────────
-bool GenApiController::regRead32(const GenApiNode& node, int64_t& val) const
-{
-    uint32_t raw{};
-    if (!m_dev->readRegister(static_cast<uint32_t>(node.address), raw))
-        return false;
-    if (node.bigEndian) raw = swap32(raw);
-    val = static_cast<int64_t>(static_cast<int32_t>(raw));
-    return true;
-}
+    try {
+        // 1. Port 생성 (GigEDevice ↔ GenApi 브리지)
+        m_port = new GvspPort(readFn, writeFn);
 
-bool GenApiController::regWrite32(const GenApiNode& node, int64_t val)
-{
-    uint32_t raw = static_cast<uint32_t>(static_cast<int32_t>(val));
-    if (node.bigEndian) raw = swap32(raw);
-    return m_dev->writeRegister(static_cast<uint32_t>(node.address), raw);
-}
+        // 2. NodeMapFactory: XML 로드
+        //    ContentType_ZippedXml : ZIP으로 압축된 XML (카메라 내장 형식)
+        //    ContentType_Xml       : 일반 XML 텍스트
+        auto contentType = isZipped
+            ? GA::ContentType_ZippedXml
+            : GA::ContentType_Xml;
 
-// ── 레지스터 read (64bit) ─────────────────────────────────────────────────────
-bool GenApiController::regRead64(const GenApiNode& node, int64_t& val) const
-{
-    uint8_t buf[8]{};
-    if (!m_dev->readMemory(static_cast<uint32_t>(node.address), buf, 8))
-        return false;
-    uint64_t raw{};
-    std::memcpy(&raw, buf, 8);
-    if (node.bigEndian) raw = swap64(raw);
-    val = static_cast<int64_t>(raw);
-    return true;
-}
+        // static으로 유지 → INodeMap 수명 보장
+        static GA::CNodeMapFactory s_factory;
+        s_factory = GA::CNodeMapFactory(contentType,
+                                        xmlData.data(),
+                                        xmlData.size());
 
-bool GenApiController::regWrite64(const GenApiNode& node, int64_t val)
-{
-    uint64_t raw = static_cast<uint64_t>(val);
-    if (node.bigEndian) raw = swap64(raw);
-    uint8_t buf[8]{};
-    std::memcpy(buf, &raw, 8);
-    return m_dev->writeMemory(static_cast<uint32_t>(node.address), buf, 8);
-}
+        // 3. NodeMap 생성
+        m_nodeMap = s_factory.CreateNodeMap();
 
-// ── 레지스터 read (IEEE754 double, FloatReg) ──────────────────────────────────
-bool GenApiController::regReadFloat(const GenApiNode& node, double& val) const
-{
-    if (node.length == 8) {
-        // 64bit IEEE754 double
-        uint8_t buf[8]{};
-        if (!m_dev->readMemory(static_cast<uint32_t>(node.address), buf, 8))
-            return false;
-        uint64_t raw{};
-        std::memcpy(&raw, buf, 8);
-        if (node.bigEndian) raw = swap64(raw);
-        std::memcpy(&val, &raw, 8);
-    } else {
-        // 32bit IEEE754 float → double 변환
-        uint32_t raw{};
-        if (!m_dev->readRegister(static_cast<uint32_t>(node.address), raw))
-            return false;
-        if (node.bigEndian) raw = swap32(raw);
-        float f{};
-        std::memcpy(&f, &raw, 4);
-        val = static_cast<double>(f);
-    }
-    return true;
-}
-
-bool GenApiController::regWriteFloat(const GenApiNode& node, double val)
-{
-    if (node.length == 8) {
-        uint64_t raw{};
-        std::memcpy(&raw, &val, 8);
-        if (node.bigEndian) raw = swap64(raw);
-        uint8_t buf[8]{};
-        std::memcpy(buf, &raw, 8);
-        return m_dev->writeMemory(static_cast<uint32_t>(node.address), buf, 8);
-    } else {
-        float f = static_cast<float>(val);
-        uint32_t raw{};
-        std::memcpy(&raw, &f, 4);
-        if (node.bigEndian) raw = swap32(raw);
-        return m_dev->writeRegister(static_cast<uint32_t>(node.address), raw);
-    }
-}
-
-// ── Integer ───────────────────────────────────────────────────────────────────
-bool GenApiController::getInteger(const QString& name, int64_t& value) const
-{
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid) {
-        qWarning("GenApiController::getInteger: node '%s' not found",
-                 qPrintable(name));
-        return false;
-    }
-    if (n->type != GenApiNodeType::Integer &&
-        n->type != GenApiNodeType::Enumeration) {
-        qWarning("GenApiController::getInteger: node '%s' is not Integer",
-                 qPrintable(name));
-        return false;
-    }
-    bool ok = (n->length >= 8) ? regRead64(*n, value) : regRead32(*n, value);
-    if (ok)
-        qDebug("GenApiController: get %s = %lld", qPrintable(name), (long long)value);
-    return ok;
-}
-
-bool GenApiController::setInteger(const QString& name, int64_t value)
-{
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid) {
-        qWarning("GenApiController::setInteger: node '%s' not found",
-                 qPrintable(name));
-        return false;
-    }
-
-    // 범위 클램프
-    if (n->maxVal > n->minVal) {
-        const int64_t lo = static_cast<int64_t>(n->minVal);
-        const int64_t hi = static_cast<int64_t>(n->maxVal);
-        const int64_t step = static_cast<int64_t>(n->incVal > 0 ? n->incVal : 1);
-        value = std::max(lo, std::min(hi, value));
-        if (step > 1) value = lo + ((value - lo) / step) * step;
-    }
-
-    bool ok = (n->length >= 8) ? regWrite64(*n, value) : regWrite32(*n, value);
-    if (ok)
-        qDebug("GenApiController: set %s = %lld", qPrintable(name), (long long)value);
-    else
-        qWarning("GenApiController: set %s failed", qPrintable(name));
-    return ok;
-}
-
-// ── Float ─────────────────────────────────────────────────────────────────────
-bool GenApiController::getFloat(const QString& name, double& value) const
-{
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid) {
-        // Float가 Integer 레지스터로 구현된 경우 (ExposureTime in ns 등)
-        int64_t ival{};
-        if (getInteger(name, ival)) { value = static_cast<double>(ival); return true; }
-        qWarning("GenApiController::getFloat: node '%s' not found",
-                 qPrintable(name));
-        return false;
-    }
-    bool ok = (n->type == GenApiNodeType::Float)
-              ? regReadFloat(*n, value)
-              : (regRead32(*n, reinterpret_cast<int64_t&>(value)),
-                 (value = static_cast<double>(static_cast<int64_t>(value))), true);
-    // Integer 타입도 float로 읽기 지원
-    if (n->type == GenApiNodeType::Integer) {
-        int64_t iv{}; ok = regRead32(*n, iv); value = static_cast<double>(iv);
-    } else {
-        ok = regReadFloat(*n, value);
-    }
-    if (ok)
-        qDebug("GenApiController: get %s = %.4f %s",
-               qPrintable(name), value, qPrintable(n->unit));
-    return ok;
-}
-
-bool GenApiController::setFloat(const QString& name, double value)
-{
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid) {
-        qWarning("GenApiController::setFloat: node '%s' not found",
-                 qPrintable(name));
-        return false;
-    }
-
-    // 범위 클램프
-    if (n->maxVal > n->minVal)
-        value = std::max(n->minVal, std::min(n->maxVal, value));
-
-    bool ok = false;
-    if (n->type == GenApiNodeType::Float) {
-        ok = regWriteFloat(*n, value);
-    } else if (n->type == GenApiNodeType::Integer) {
-        // 일부 카메라는 ExposureTime을 Integer(ns)로 구현
-        ok = regWrite32(*n, static_cast<int64_t>(std::round(value)));
-    }
-
-    if (ok)
-        qDebug("GenApiController: set %s = %.4f %s",
-               qPrintable(name), value, qPrintable(n->unit));
-    else
-        qWarning("GenApiController: set %s failed", qPrintable(name));
-    return ok;
-}
-
-// ── Enumeration ───────────────────────────────────────────────────────────────
-bool GenApiController::getEnum(const QString& name, QString& entry) const
-{
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid || n->type != GenApiNodeType::Enumeration) {
-        qWarning("GenApiController::getEnum: node '%s' not Enumeration",
-                 qPrintable(name));
-        return false;
-    }
-
-    int64_t raw{};
-    if (!regRead32(*n, raw)) return false;
-
-    // 값 → 이름 역매핑
-    for (auto it = n->enumEntries.begin(); it != n->enumEntries.end(); ++it) {
-        if (it.value() == raw) {
-            entry = it.key();
-            qDebug("GenApiController: get %s = '%s' (%lld)",
-                   qPrintable(name), qPrintable(entry), (long long)raw);
-            return true;
+        // 4. Port 연결 (Device 표준 포트)
+        if (m_nodeMap && !m_nodeMap->Connect(m_port)) {
+            qWarning("GenApiController: failed to connect port");
         }
-    }
 
-    // 알 수 없는 값: 숫자 그대로
-    entry = QString::number(raw);
-    return true;
-}
+        if (!m_nodeMap) {
+            qWarning("GenApiController: CreateNodeMap returned nullptr");
+            return false;
+        }
 
-bool GenApiController::setEnum(const QString& name, const QString& entry)
-{
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid || n->type != GenApiNodeType::Enumeration) {
-        qWarning("GenApiController::setEnum: node '%s' not Enumeration",
-                 qPrintable(name));
+        // 노드 수 확인
+        GA::NodeList_t nodes;
+        m_nodeMap->GetNodes(nodes);
+        qDebug("GenApiController: loaded %zu nodes", nodes.size());
+        return true;
+
+    } catch (const GC::GenericException& e) {
+        qWarning("GenApiController: GenICam exception: %s",
+                 e.GetDescription());
+        reset();
+        return false;
+    } catch (const std::exception& e) {
+        qWarning("GenApiController: exception: %s", e.what());
+        reset();
         return false;
     }
+}
 
-    if (!n->enumEntries.contains(entry)) {
-        qWarning("GenApiController::setEnum: entry '%s' not found in '%s'",
-                 qPrintable(entry), qPrintable(name));
-        qWarning("  Available: %s",
-                 qPrintable(QStringList(n->enumEntries.keys()).join(", ")));
+// ── 접근 모드 확인: CPointer를 T* 변환 후 자유 함수에 전달 ──────────────────
+
+// ── getInteger ────────────────────────────────────────────────────────────────
+bool GenApiController::getInteger(const char* name, int64_t& out) const
+{
+    if (!m_nodeMap) return false;
+    try {
+        IntPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsReadable(p->GetAccessMode())) return false;
+        out = p->GetValue();
+        return true;
+    } catch (...) { return false; }
+}
+
+// ── setInteger ────────────────────────────────────────────────────────────────
+bool GenApiController::setInteger(const char* name, int64_t val)
+{
+    if (!m_nodeMap) return false;
+    try {
+        IntPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsWritable(p->GetAccessMode())) return false;
+        p->SetValue(val);
+        return true;
+    } catch (const GC::GenericException& e) {
+        qWarning("GenApiController::setInteger(%s): %s", name, e.GetDescription());
         return false;
     }
-
-    const int64_t val = n->enumEntries[entry];
-    bool ok = regWrite32(*n, val);
-    if (ok)
-        qDebug("GenApiController: set %s = '%s' (%lld)",
-               qPrintable(name), qPrintable(entry), (long long)val);
-    else
-        qWarning("GenApiController: set %s failed", qPrintable(name));
-    return ok;
 }
 
-// ── Command 실행 ──────────────────────────────────────────────────────────────
-bool GenApiController::execute(const QString& name)
+// ── getFloat ─────────────────────────────────────────────────────────────────
+bool GenApiController::getFloat(const char* name, double& out) const
 {
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid || n->type != GenApiNodeType::Command) {
-        qWarning("GenApiController::execute: command '%s' not found",
-                 qPrintable(name));
+    if (!m_nodeMap) return false;
+    try {
+        FltPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsReadable(p->GetAccessMode())) return false;
+        out = p->GetValue();
+        return true;
+    } catch (...) { return false; }
+}
+
+// ── setFloat ──────────────────────────────────────────────────────────────────
+bool GenApiController::setFloat(const char* name, double val)
+{
+    if (!m_nodeMap) return false;
+    try {
+        FltPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsWritable(p->GetAccessMode())) return false;
+        p->SetValue(val);
+        return true;
+    } catch (const GC::GenericException& e) {
+        qWarning("GenApiController::setFloat(%s): %s", name, e.GetDescription());
         return false;
     }
-    return m_dev->writeRegister(static_cast<uint32_t>(n->address),
-                                n->commandValue);
 }
 
-// ── 범위 조회 ─────────────────────────────────────────────────────────────────
-bool GenApiController::getRange(const QString& name,
-                                double& minVal, double& maxVal,
-                                double& step) const
+// ── getString ─────────────────────────────────────────────────────────────────
+bool GenApiController::getString(const char* name, std::string& out) const
 {
-    const auto* n = m_info.get(name);
-    if (!n || !n->valid) return false;
-    minVal = n->minVal;
-    maxVal = n->maxVal;
-    step   = n->incVal;
-    return true;
+    if (!m_nodeMap) return false;
+    try {
+        StrPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsReadable(p->GetAccessMode())) return false;
+        out = std::string(p->GetValue().c_str());
+        return true;
+    } catch (...) { return false; }
 }
 
-// ── Enumeration 항목 목록 ─────────────────────────────────────────────────────
-QStringList GenApiController::enumEntries(const QString& name) const
+// ── getEnum ───────────────────────────────────────────────────────────────────
+bool GenApiController::getEnum(const char* name, std::string& out) const
 {
-    const auto* n = m_info.get(name);
-    if (!n || n->type != GenApiNodeType::Enumeration) return {};
-    return n->enumEntries.keys();
+    if (!m_nodeMap) return false;
+    try {
+        EnumPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsReadable(p->GetAccessMode())) return false;
+        out = std::string(p->ToString().c_str());
+        return true;
+    } catch (...) { return false; }
 }
 
-// ── 주요 파라미터 일괄 읽기 ──────────────────────────────────────────────────
-GenApiController::CameraParams GenApiController::readAll() const
+// ── setEnum ───────────────────────────────────────────────────────────────────
+bool GenApiController::setEnum(const char* name, const char* val)
 {
-    CameraParams p;
-
-    auto tryI = [&](const QString& name, int64_t& dst) {
-        int64_t v{}; if (getInteger(name, v)) dst = v; };
-    auto tryF = [&](const QString& name, double& dst) {
-        double v{}; if (getFloat(name, v)) dst = v; };
-    auto tryE = [&](const QString& name, QString& dst) {
-        QString s; if (getEnum(name, s)) dst = s; };
-
-    tryI("Width",   p.width);
-    tryI("Height",  p.height);
-    tryI("OffsetX", p.offsetX);
-    tryI("OffsetY", p.offsetY);
-
-    // ExposureTime: 카메라마다 단위가 다를 수 있음 (us or ns)
-    // 일반적으로 GenICam 표준은 μs
-    tryF("ExposureTime", p.exposureTime);
-    tryF("Gain",         p.gain);
-
-    // FrameRate: 다양한 이름 시도
-    if (!getFloat("AcquisitionFrameRate", p.frameRate))
-        if (!getFloat("ResultingFrameRate", p.frameRate))
-            getFloat("FrameRate", p.frameRate);
-
-    tryE("AcquisitionMode", p.acquisitionMode);
-    tryE("PixelFormat",     p.pixelFormat);
-
-    p.valid = true;
-    return p;
+    if (!m_nodeMap) return false;
+    try {
+        EnumPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsWritable(p->GetAccessMode())) return false;
+        p->FromString(GC::gcstring(val));
+        return true;
+    } catch (const GC::GenericException& e) {
+        qWarning("GenApiController::setEnum(%s=%s): %s", name, val, e.GetDescription());
+        return false;
+    }
 }
+
+// ── execute ───────────────────────────────────────────────────────────────────
+bool GenApiController::execute(const char* name)
+{
+    if (!m_nodeMap) return false;
+    try {
+        CmdPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid() || !GA::IsWritable(p->GetAccessMode())) return false;
+        p->Execute();
+        qDebug("GenApiController::execute(%s) OK", name);
+        return true;
+    } catch (const GC::GenericException& e) {
+        qWarning("GenApiController::execute(%s): %s", name, e.GetDescription());
+        return false;
+    }
+}
+
+// ── getRegisterAddress ────────────────────────────────────────────────────────
+// AcquisitionStart 등 Command 노드의 실제 레지스터 주소 조회
+// 기존 FeatureDesc(address, commandValue) 방식과의 호환용
+bool GenApiController::getRegisterAddress(const char* name,
+                                           int64_t& addr,
+                                           int64_t& len) const
+{
+    if (!m_nodeMap) return false;
+    try {
+        RegPtr p = m_nodeMap->GetNode(name);
+        if (!p.IsValid()) return false;
+        addr = p->GetAddress();
+        len  = p->GetLength();
+        return true;
+    } catch (...) { return false; }
+}
+
+// ── hasNode ───────────────────────────────────────────────────────────────────
+bool GenApiController::hasNode(const char* name) const
+{
+    if (!m_nodeMap) return false;
+    try {
+        GA::INode* node = m_nodeMap->GetNode(name);
+        return node != nullptr;
+    } catch (...) { return false; }
+}
+
+// ── nodeType ──────────────────────────────────────────────────────────────────
+GenApiController::NodeType GenApiController::nodeType(const char* name) const
+{
+    if (!m_nodeMap) return NodeType::Unknown;
+    try {
+        GA::INode* node = m_nodeMap->GetNode(name);
+        if (!node) return NodeType::Unknown;
+        switch (node->GetPrincipalInterfaceType()) {
+            case GA::intfIInteger:     return NodeType::Integer;
+            case GA::intfIFloat:       return NodeType::Float;
+            case GA::intfIString:      return NodeType::String;
+            case GA::intfIEnumeration: return NodeType::Enum;
+            case GA::intfICommand:     return NodeType::Command;
+            case GA::intfIBoolean:     return NodeType::Boolean;
+            default:                   return NodeType::Unknown;
+        }
+    } catch (...) { return NodeType::Unknown; }
+}
+
+// ── getNodeNames ──────────────────────────────────────────────────────────────
+std::vector<std::string> GenApiController::getNodeNames() const
+{
+    std::vector<std::string> result;
+    if (!m_nodeMap) return result;
+    try {
+        GA::NodeList_t nodes;
+        m_nodeMap->GetNodes(nodes);
+        result.reserve(nodes.size());
+        for (auto* node : nodes)
+            result.emplace_back(node->GetName().c_str());
+    } catch (...) {}
+    return result;
+}
+
+#endif  // HAVE_GENICAM_SDK

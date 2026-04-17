@@ -1,0 +1,33 @@
+#########################################
+The GenICam Python Bindings Documentation
+#########################################
+
+*************************************
+What are the GenICam Python Bindings?
+*************************************
+
+The GenICam Python Bindings consist of two Python Bindings: The GenApi-Pytohn Binding and the GenTL-Python Binding. So what is a Python Binding? Let's take a look at a definition of *language binding* given by `Wikipedia <https://en.wikipedia.org/wiki/Language_binding>`_.
+
+   *In computing, a binding from a programming language to a library or operating system service is an application programming interface (API) providing glue code to use that library or service in a given programming language. Binding generally refers to a mapping of one thing to another.*
+
+It's saying that you can use libraries over your preferred programming language which is different from the target library's interface language. Having that definition, we as the GenICam committee provides language bindings for the GenApi reference implementation and the GenTL Producers; these libraries provide a C/C++ interface for their clients' code and we provide you Python as the programming interface for those libraries.
+
+*****************
+Table of Contents
+*****************
+
+.. toctree::
+  :maxdepth: 2
+
+  quickstart/index
+  tutorials/index
+  reference/index
+  misc/index
+
+******************
+Indices and Tables
+******************
+
+* :ref:`genindex`
+* :ref:`search`
+

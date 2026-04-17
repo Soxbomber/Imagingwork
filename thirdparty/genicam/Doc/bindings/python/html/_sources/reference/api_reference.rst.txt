@@ -1,0 +1,382 @@
+*************
+API Reference
+*************
+
+The GenTL-Python Binding
+========================
+
+Classes
+-------
+
+..
+  We will go with the following markup in the end to automatically document
+  everything in the gentl module but now we generate information about
+  only the object-oriented API. We temporarily omit the low-level API for
+  a while.
+
+.. autoclass:: genicam.gentl.AbstractEventManager
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.BaseEventManagerGenApiEvent
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.Buffer
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.BufferToken
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.DataStream
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.Device
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.DeviceInfo
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EventManagerError
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EventManagerFeatureChange
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EventManagerFeatureInvalidate
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EventManagerModule
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EventManagerNewBuffer
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EventManagerRemoteDevice
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EventToken
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.GenTLProducer
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.Helper
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.IEventCapableModule
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.IEventManager
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.Interface
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.InterfaceInfo
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.Part
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.Port
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.System
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.URLInfo
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+Exceptions
+----------
+
+.. autoclass:: genicam.gentl.AbortException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.AccessDeniedException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.BufferTooSmallException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.BusyException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.ClosedException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.ErrorException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+  
+.. autoclass:: genicam.gentl.InvalidAddressException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.InvalidHandleException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.InvalidIdException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.InvalidParameterException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.IoException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.InvalidBufferException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.InvalidIndexException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.InvalidValueException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.LoadLibraryException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.NoDataException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.NotAvailableException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.NotImplementedException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+ 
+.. autoclass:: genicam.gentl.NotInitializedException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+  
+.. autoclass:: genicam.gentl.OutOfMemoryException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.ParsingChunkDataException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.ResourceExhaustedException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.ResourceInUseException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.TimeoutException
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+Enumerations
+------------
+
+.. autoclass:: genicam.gentl.ACQ_QUEUE_TYPE_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.ACQ_START_FLAGS_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.ACQ_STOP_FLAGS_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.BUFFER_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.BUFFER_PART_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.DEVICE_ACCESS_FLAGS_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.DEVICE_ACCESS_STATUS_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.DEVICE_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EVENT_DATA_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EVENT_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.EVENT_TYPE_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.GC_ERROR_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.INFO_DATATYPE_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.INTERFACE_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.PARTDATATYPE_IDS
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.PAYLOADTYPE_INFO_IDS
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.PIXELENDIANNESS_IDS
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.PIXELFORMAT_NAMESPACE_IDS
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.PORT_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.STREAM_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.TL_CHAR_ENCODING_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.TL_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.URL_INFO_CMD_LIST
+  :members:
+  :show-inheritance:
+  :inherited-members:
+
+.. autoclass:: genicam.gentl.URL_SCHEME_IDS
+  :members:
+  :show-inheritance:
+  :inherited-members:
+

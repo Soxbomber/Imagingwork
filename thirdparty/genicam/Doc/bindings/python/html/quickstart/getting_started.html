@@ -1,0 +1,246 @@
+
+
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Components &#8212; The GenICam Python Bindings  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/bizstyle.css" />
+    
+    <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <script src="../_static/sphinx_highlight.js"></script>
+    <script src="../_static/bizstyle.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Tutorials" href="../tutorials/index.html" />
+    <link rel="prev" title="Getting Started" href="index.html" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <!--[if lt IE 9]>
+    <script src="_static/css3-mediaqueries.js"></script>
+    <![endif]-->
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../tutorials/index.html" title="Tutorials"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Getting Started"
+             accesskey="P">previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Getting Started</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Components</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="components">
+<h1>Components<a class="headerlink" href="#components" title="Permalink to this heading">¶</a></h1>
+<p>The GenTL-Python Binding and its required software modules consist of the following component:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gentl.py</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">_gentl.so</span></code> (or <code class="docutils literal notranslate"><span class="pre">_gentl.pyd</span></code> for Windows)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">setup.py</span></code></p></li>
+</ul>
+<p>They are provided being bundled by the GenICam reference implementation package and you can download it from the <a class="reference external" href="https://www.emva.org/standards-technology/genicam/genicam-downloads/">EMVA website</a>.</p>
+<div class="section" id="getting-started">
+<h2>Getting Started<a class="headerlink" href="#getting-started" title="Permalink to this heading">¶</a></h2>
+<p>In this chapter, we introduce a way to write code that uses <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> in a Python IDE called <a class="reference external" href="https://www.jetbrains.com/pycharm/">PyCharm</a> with a Python interpreter distributed by Continuum Analytics being bundled in a package named <a class="reference external" href="https://www.continuum.io/">Anaconda</a>. We go through the following steps to setup a workspace in this chapter:</p>
+<blockquote>
+<div><ol class="arabic simple">
+<li><p>Checkout a GenICam working copy from the official SVN repository.</p></li>
+<li><p>Build required modules from the source.</p></li>
+<li><p>Install a Python interpreter.</p></li>
+<li><p>Install a Python IDE.</p></li>
+<li><p>Create a Python project in the IDE.</p></li>
+<li><p>Set up the Python project.</p></li>
+<li><p>Write code and test it.</p></li>
+</ol>
+</div></blockquote>
+<div class="section" id="the-genicam-source-package">
+<h3>The GenICam Source Package<a class="headerlink" href="#the-genicam-source-package" title="Permalink to this heading">¶</a></h3>
+<p>In this example, we use the <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> module building it from scratch so you have to get the GenICam source package first. The GenTL-Python Binding still be under development process and the development branch is available at the following URL:</p>
+<blockquote>
+<div><p><a class="reference external" href="https://genicam.mvtec.com/svn/genicam/branches/_dev_teli_kazunari_1881_20180121/">https://genicam.mvtec.com/svn/genicam/branches/_dev_teli_kazunari_1881_20180121/</a></p>
+</div></blockquote>
+<p>Please follow the instruction described in the <code class="docutils literal notranslate"><span class="pre">readme.md</span></code> file in the <code class="docutils literal notranslate"><span class="pre">source/Bindings</span></code> directory to build the required modules by yourself. If you have a markdown file viewer, you should display the file like this:</p>
+<a class="reference internal image-reference" href="../_images/language_bindings_readme.png"><img alt="../_images/language_bindings_readme.png" src="../_images/language_bindings_readme.png" style="width: 717.5px; height: 466.9px;" /></a>
+</div>
+<div class="section" id="id1">
+<h3>Anaconda<a class="headerlink" href="#id1" title="Permalink to this heading">¶</a></h3>
+<p>Anaconda is an open source distribution of the Python for scientific computing and it aims to simplify package management and deployment. Anaconda provides a package management system called <code class="docutils literal notranslate"><span class="pre">conda</span></code> and it’s a remarkable advantage of the distribution. By the way, Anaconda is definitely great but please note that it’s not available on ARM. Sigh.</p>
+<p>Anyway, you can download the installer at the following URL (IMPORTANT: The <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> module is available with Python &gt; <strong>3.4</strong>. It doesn’t work with any of Python 2):</p>
+<blockquote>
+<div><p><a class="reference external" href="https://www.continuum.io/downloads">https://www.continuum.io/downloads</a></p>
+</div></blockquote>
+<p>Continuum Analytics provides another minimalistic package named Miniconda. If you want to save disk space, then you should go with Miniconda. Miniconda installers can be downloaded at the following URL:</p>
+<blockquote>
+<div><p><a class="reference external" href="https://conda.io/miniconda.html">https://conda.io/miniconda.html</a></p>
+</div></blockquote>
+</div>
+<div class="section" id="id2">
+<h3>PyCharm<a class="headerlink" href="#id2" title="Permalink to this heading">¶</a></h3>
+<p>PyCharm is a Python IDE that is developed by JetBrains. You can download the installer at the following URL; JetBrains has prepared installers for Windows, Linux, and macOS:</p>
+<blockquote>
+<div><p><a class="reference external" href="https://www.jetbrains.com/pycharm/download/">https://www.jetbrains.com/pycharm/download/</a></p>
+</div></blockquote>
+<p>In this example, we use the PyCharm Community edition 2016.3.2. The installation process is straight forward so we intentionally omit the detail.</p>
+</div>
+<div class="section" id="creating-a-python-project">
+<h3>Creating a Python Project<a class="headerlink" href="#creating-a-python-project" title="Permalink to this heading">¶</a></h3>
+<p>Okay, let’s start the tutorial. We go through the following steps in this section:</p>
+<blockquote>
+<div><ol class="arabic simple">
+<li><p>Launch PyCharm.</p></li>
+<li><p>Create a Python project.</p></li>
+<li><p>Let PyCharm to know the location of the <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> module.</p></li>
+<li><p>Write your Python code.</p></li>
+</ol>
+</div></blockquote>
+<p>First, launch PyCharm. Then you will see the following window pops up. In the popped-up window, click <code class="docutils literal notranslate"><span class="pre">Create</span> <span class="pre">New</span> <span class="pre">Project</span></code> in the middle of the window.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_welcome_1.png"><img alt="../_images/pycharm_welcome_1.png" src="../_images/pycharm_welcome_1.png" style="width: 543.9px; height: 322.0px;" /></a>
+<p>Second, fill out the root directory of the Python project that you’re going to newly create, and select a path to the Python interpreter. In this example, we named <cite>gentl-py-tutorial</cite> as its project name and used Python 3.5 as the Python interpreter.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_welcome_2.png"><img alt="../_images/pycharm_welcome_2.png" src="../_images/pycharm_welcome_2.png" style="width: 543.9px; height: 322.0px;" /></a>
+<p>Then the main windows pops up. You can find out your project name, <code class="docutils literal notranslate"><span class="pre">gentl-py-tutorial</span></code> in the <code class="docutils literal notranslate"><span class="pre">Project</span></code> pane.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_main_1.png"><img alt="../_images/pycharm_main_1.png" src="../_images/pycharm_main_1.png" style="width: 593.5999999999999px; height: 410.2px;" /></a>
+<p>So let’s tell the project where the <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> module is located. From the Menu bar on the top, click <code class="docutils literal notranslate"><span class="pre">File</span> <span class="pre">-</span> <span class="pre">Settings...</span></code>. You will see the following window pops up. In the left pane, select <code class="docutils literal notranslate"><span class="pre">Project:</span> <span class="pre">gentl-py-tutorial</span> <span class="pre">&gt;</span> <span class="pre">Project</span> <span class="pre">Structure</span></code>. Then select <code class="docutils literal notranslate"><span class="pre">+</span> <span class="pre">Add</span> <span class="pre">Content</span> <span class="pre">Root</span></code> in the top-right corner.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_setting_1.png"><img alt="../_images/pycharm_setting_1.png" src="../_images/pycharm_setting_1.png" style="width: 582.4px; height: 334.59999999999997px;" /></a>
+<p>Then another window will pop up as follows and select a directory where the <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> module is located and click <code class="docutils literal notranslate"><span class="pre">OK</span></code> button in the bottom-right corner. In this example, the GenICam source package has been located at <code class="docutils literal notranslate"><span class="pre">C:\projects\genicam</span></code> on a x64 machine so the target directory is <code class="docutils literal notranslate"><span class="pre">C:\projects\genicam\bin\Win64_x64</span></code>.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_setting_2.png"><img alt="../_images/pycharm_setting_2.png" src="../_images/pycharm_setting_2.png" style="width: 310.79999999999995px; height: 357.7px;" /></a>
+<p>Selecting the module directory, the Setting windows would look like this. You should be able to find out the directory you recently selected is listed in the right pane. Having confirmed that the directory in the pane, just click <code class="docutils literal notranslate"><span class="pre">OK</span></code> button and go back to the main window.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_setting_3.png"><img alt="../_images/pycharm_setting_3.png" src="../_images/pycharm_setting_3.png" style="width: 582.4px; height: 334.59999999999997px;" /></a>
+<p>Now you can start to write code. Right-clicking the project folder in the <code class="docutils literal notranslate"><span class="pre">roject</span></code> pane in the left most of the main window, click <code class="docutils literal notranslate"><span class="pre">New</span> <span class="pre">-</span> <span class="pre">Python</span> <span class="pre">File</span></code>. We name the file <code class="docutils literal notranslate"><span class="pre">tutorial.py</span></code> and click <code class="docutils literal notranslate"><span class="pre">OK</span></code> button.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_new_file.png"><img alt="../_images/pycharm_new_file.png" src="../_images/pycharm_new_file.png" style="width: 256.2px; height: 116.19999999999999px;" /></a>
+<p>Paste the following code to <code class="docutils literal notranslate"><span class="pre">tutorial.py</span></code>. The following code is to check if the imported <code class="xref py py-class docutils literal notranslate"><span class="pre">GenTLProducer</span></code> class of the <code class="xref py py-mod docutils literal notranslate"><span class="pre">gentl</span></code> module returns the correct compliant GenTL version as a <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code> object.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Standard library imports</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+
+<span class="c1"># Related third party imports</span>
+<span class="kn">from</span> <span class="nn">genicam.gentl</span> <span class="kn">import</span> <span class="n">GenTLProducer</span>
+
+
+<span class="k">class</span> <span class="nc">PythonBindingTester</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">test_compliant_version</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span>
+            <span class="s1">&#39;1.5&#39;</span><span class="p">,</span>
+            <span class="n">GenTLProducer</span><span class="o">.</span><span class="n">get_compliant_version</span><span class="p">()</span>
+        <span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s1">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">unittest</span><span class="o">.</span><span class="n">main</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>Selecting <code class="docutils literal notranslate"><span class="pre">tutorial.py</span></code> in the <code class="docutils literal notranslate"><span class="pre">Project</span></code> pane, right-click the file name and click <code class="docutils literal notranslate"><span class="pre">Run</span> <span class="pre">'tutorial'</span></code> to just run the script or <code class="docutils literal notranslate"><span class="pre">Run</span> <span class="pre">'tutorial'</span></code> to debug the script. Now we just run the script so click <code class="docutils literal notranslate"><span class="pre">Run</span> <span class="pre">'tutorial'</span></code>.</p>
+<a class="reference internal image-reference" href="../_images/pycharm_after_execution.png"><img alt="../_images/pycharm_after_execution.png" src="../_images/pycharm_after_execution.png" style="width: 593.5999999999999px; height: 567.6999999999999px;" /></a>
+<p>If the above code correctly worked, the IDE should show <code class="docutils literal notranslate"><span class="pre">OK</span></code> as follows in the bottom of the IDE. Please check the setup again if it didn’t work.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>&quot;C:\Program Files\Anaconda3\python.exe&quot; C:/projects/gentl-py-tutorial/tutorial.py
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+OK
+
+Process finished with exit code 0
+</pre></div>
+</div>
+<p>You have achieved the aim of this chapter. You will get deeper into the usage in the following chapters.</p>
+</div>
+</div>
+</div>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+            <p class="logo"><a href="../index.html">
+              <img class="logo" src="../_static/genicam_logo.png" alt="Logo"/>
+            </a></p>
+  <div>
+    <h3><a href="../index.html">Table of Contents</a></h3>
+    <ul>
+<li><a class="reference internal" href="#">Components</a><ul>
+<li><a class="reference internal" href="#getting-started">Getting Started</a><ul>
+<li><a class="reference internal" href="#the-genicam-source-package">The GenICam Source Package</a></li>
+<li><a class="reference internal" href="#id1">Anaconda</a></li>
+<li><a class="reference internal" href="#id2">PyCharm</a></li>
+<li><a class="reference internal" href="#creating-a-python-project">Creating a Python Project</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+  </div>
+  <div>
+    <h4>Previous topic</h4>
+    <p class="topless"><a href="index.html"
+                          title="previous chapter">Getting Started</a></p>
+  </div>
+  <div>
+    <h4>Next topic</h4>
+    <p class="topless"><a href="../tutorials/index.html"
+                          title="next chapter">Tutorials</a></p>
+  </div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/quickstart/getting_started.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../tutorials/index.html" title="Tutorials"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Getting Started"
+             >previous</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">The GenICam Python Bindings  documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Getting Started</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">Components</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright European Machine Vision Association.
+      Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    </div>
+  </body>
+</html>

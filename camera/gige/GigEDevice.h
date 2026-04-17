@@ -36,7 +36,16 @@ public:
 
     // ── 열거 ─────────────────────────────────────────────────────────────────
     // 네트워크에 있는 GigE Vision 카메라를 브로드캐스트로 탐색
+    // 브로드캐스트 탐색 (같은 서브넷, Switch L2)
     static QList<GigECameraInfo> discover(int timeoutMs = 1000);
+
+    // 유니캐스트 탐색 (카메라 IP 직접 지정, Switch/VLAN 환경)
+    static QList<GigECameraInfo> discoverUnicast(
+        const QList<QHostAddress>& knownIps, int timeoutMs = 1000);
+
+    // discover() 내부 유니캐스트 전송용 알려진 IP 목록 (전역 설정)
+    static void addKnownIp(const QHostAddress& ip);
+    static void clearKnownIps();
 
     // ── 연결 ─────────────────────────────────────────────────────────────────
     bool open(const QHostAddress& cameraIp);

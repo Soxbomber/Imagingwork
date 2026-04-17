@@ -40,39 +40,38 @@ public:
 
     QList<DeviceInfo> EnumCameras()                                   override;
     bool StartGrabbing(const DeviceInfo& di, ImageViewerDock* dock)   override;
-    void StopGrabbing(const QString& serialnumber)                     override;
+    void StopGrabbing(const QString& description)                     override;
     void StopAll()                                                    override;
 
     // ── GenApi 파라미터 제어 API ─────────────────────────────────────────────
-    // serialnumber으로 카메라 식별
+    // description으로 카메라 식별
 
     // 해상도 변경 (Acquisition Stop → 변경 → Start 자동 처리)
-    bool setResolution(const QString& serialnumber, int w, int h,
+    bool setResolution(const QString& description, int w, int h,
                        int offsetX = 0, int offsetY = 0);
 
     // ExposureTime (μs): 카메라 단위 자동 변환
-    bool setExposureTime(const QString& serialnumber, double us);
-    bool getExposureTime(const QString& serialnumber, double& us);
+    bool setExposureTime(const QString& description, double us);
+    bool getExposureTime(const QString& description, double& us);
 
     // Gain (dB)
-    bool setGain(const QString& serialnumber, double dB);
-    bool getGain(const QString& serialnumber, double& dB);
+    bool setGain(const QString& description, double dB);
+    bool getGain(const QString& description, double& dB);
 
     // AcquisitionFrameRate (Hz)
-    bool setFrameRate(const QString& serialnumber, double fps);
-    bool getFrameRate(const QString& serialnumber, double& fps);
+    bool setFrameRate(const QString& description, double fps);
+    bool getFrameRate(const QString& description, double& fps);
 
     // Generic: Integer / Float / Enum
-    bool setInteger(const QString& serialnumber, const QString& node, int64_t val);
-    bool setFloat  (const QString& serialnumber, const QString& node, double val);
-    bool setEnum   (const QString& serialnumber, const QString& node,
+    bool setInteger(const QString& description, const QString& node, int64_t val);
+    bool setFloat  (const QString& description, const QString& node, double val);
+    bool setEnum   (const QString& description, const QString& node,
                     const QString& entry);
 
-    // 현재 파라미터 전체 읽기
-    GenApiController::CameraParams readParams(const QString& serialnumber);
+
 
 private:
-    ArvCameraCtx* findCtx(const QString& serialnumber);
+    ArvCameraCtx* findCtx(const QString& description);
     void stopCtx(ArvCameraCtx& ctx);
 
     libusb_context* m_ctx{};

@@ -2,14 +2,16 @@
 #include "../genicam/DebayerAVX2.h"
 #include "../genicam/ArvU3vProtocol.h"
 #include <QDebug>
+#include <QAbstractSocket>
 #include <cstring>
 #include <thread>
+
+// NDIS GvspCapture는 별도 드라이버 빌드 필요 → 현재는 Qt 소켓 방식 사용
+// 드라이버 준비 후 HAVE_NDIS_CAPTURE 를 정의하고 GvspCapture.cpp를 추가할 것
 
 GigEStream::GigEStream(QObject* parent)
     : QObject(parent)
 {
-    // 버퍼 초기화는 bind() 시 실제 해상도가 정해지지 않으므로
-    // 기본 크기로 할당 (Start()에서 첫 프레임 수신 시 resize)
     m_freePool  = std::make_unique<GigEFramePool>(N_BUFFERS);
     m_fullQueue = std::make_unique<GigEFrameQueue>();
     m_fullQueue->setPool(m_freePool.get());
@@ -18,59 +20,49 @@ GigEStream::GigEStream(QObject* parent)
 GigEStream::~GigEStream()
 {
     Stop();
-    m_socket.close();
-}
-
-bool GigEStream::bind(uint16_t port)
-{
-    // port=0: 임의 포트 자동 선택
-    if (!m_socket.bind(QHostAddress(QHostAddress::AnyIPv4), port,
-                       QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-        qWarning("GigEStream::bind: %s",
-                 qPrintable(m_socket.errorString()));
-        return false;
-    }
-    m_port = m_socket.localPort();
-    qDebug("GigEStream: bound to port %u", m_port);
-    return true;
 }
 
 void GigEStream::Stop()
 {
     m_running = false;
     m_fullQueue->stop();
-    m_socket.close();
 }
 
-// ============================================================
-// Start() — 수신 스레드 (별도 QThread에서 실행)
-// ============================================================
 void GigEStream::Start()
 {
-    qDebug("GigEStream::Start() on port %u", m_port);
+    // Qt QUdpSocket + SO_RCVBUF 8MB
+    // NDIS 드라이버 사용 시: HAVE_NDIS_CAPTURE 정의 + GvspCapture.cpp 빌드에 추가
+    QUdpSocket sock;
+    sock.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
+                         8 * 1024 * 1024);
+    if (!sock.bind(QHostAddress(QHostAddress::AnyIPv4), m_bindPort,
+                   QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+        qWarning("GigEStream::Start: bind failed: %s",
+                 qPrintable(sock.errorString()));
+        emit bindCompleted(0, false);
+        return;
+    }
+    m_port = sock.localPort();
+    qDebug("GigEStream: Qt socket bound port=%u (NDIS driver not installed)", m_port);
+    emit bindCompleted(m_port, true);
 
-    // 변환 스레드 시작
-    std::thread convertThr([this]{ convertLoop(); });
-
-    const int MTU = 9000 + 28;  // Jumbo frame 최대
-    QByteArray buf(MTU, 0);
+    std::thread cvt([this]{ convertLoop(); });
+    QByteArray buf(GVSP_MTU, 0);
 
     while (m_running) {
-        if (!m_socket.waitForReadyRead(200)) continue;
-
-        while (m_socket.hasPendingDatagrams() && m_running) {
-            const qint64 sz = m_socket.readDatagram(
-                buf.data(), buf.size());
+        if (!sock.waitForReadyRead(200)) continue;
+        while (sock.hasPendingDatagrams() && m_running) {
+            const qint64 sz = sock.readDatagram(buf.data(), buf.size());
             if (sz > 0)
-                processPacket(reinterpret_cast<const uint8_t*>(
-                    buf.constData()), static_cast<int>(sz));
+                processPacket(reinterpret_cast<const uint8_t*>(buf.constData()),
+                              static_cast<int>(sz));
         }
     }
 
+    sock.close();
     m_fullQueue->stop();
-    if (convertThr.joinable()) convertThr.join();
-
-    qDebug("GigEStream: stopped, queue_dropped=%llu",
+    if (cvt.joinable()) cvt.join();
+    qDebug("GigEStream: Qt stopped dropped=%llu",
            (unsigned long long)m_fullQueue->droppedCount());
 }
 
@@ -99,46 +91,66 @@ void GigEStream::processPacket(const uint8_t* data, int size)
 
     // ── LEADER ───────────────────────────────────────────────────────────────
     case GVSP_CONTENT_LEADER: {
-        if (payloadSize < int(sizeof(GvspImageLeader))) return;
+        // GigE Vision 2.0 Spec Table 15-4 Image Data Leader:
+        //   payload[0:3]   = Timestamp High (4 bytes)
+        //   payload[4:7]   = Timestamp Low  (4 bytes)
+        //   payload[8:9]   = Payload Type   (2 bytes, big-endian) = 0x0001 IMAGE
+        //   payload[10:11] = Reserved       (2 bytes)
+        //   payload[12:15] = Pixel Format   (4 bytes, big-endian, PFNC)
+        //   payload[16:19] = Size X / Width (4 bytes, big-endian)
+        //   payload[20:23] = Size Y / Height(4 bytes, big-endian)
+        //
+        // pcap 검증 (gige2.pcapng pkt 314):
+        //   payload hex: 00000001 000005B4 C64416C0 01080009 000005A0 00000438
+        //   offset 8:9  = 0xC644 → Timestamp 일부 (아님)
+        //   실제: payload[12:15]=0x01080009=BayerGR8, [16:19]=1440, [20:23]=1080
 
-        const auto* ldr = reinterpret_cast<const GvspImageLeader*>(payload);
-        const uint16_t payloadType =
-            (uint16_t(ldr->payload_type >> 8) & 0xFF) |
-            ((uint16_t(ldr->payload_type) & 0xFF) << 8);  // big-endian
-        // 직접 파싱 (네트워크 바이트 순서)
-        const uint16_t pt   = uint16_t((payload[0] << 8) | payload[1]);
-        (void)pt;
+        if (payloadSize < 24) return;  // 최소 24 bytes (timestamp8 + type2 + rsv2 + pfnc4 + w4 + h4)
 
+        auto readBE16 = [&](const uint8_t* p) -> uint16_t {
+            return (uint16_t(p[0]) << 8) | uint16_t(p[1]);
+        };
         auto readBE32 = [&](const uint8_t* p) -> uint32_t {
             return (uint32_t(p[0])<<24)|(uint32_t(p[1])<<16)|
                    (uint32_t(p[2])<<8)|uint32_t(p[3]);
         };
-        const uint32_t pfnc = readBE32(payload + 8);   // pixel_format
-        const uint32_t w    = readBE32(payload + 12);  // width
-        const uint32_t h    = readBE32(payload + 16);  // height
 
-        if (w == 0 || h == 0) return;
+        const uint16_t payloadType = readBE16(payload + 8);
+        if (payloadType != 0x0001) return;  // IMAGE only
+
+        const uint32_t pfnc = readBE32(payload + 12);  // Pixel Format (PFNC)
+        const uint32_t w    = readBE32(payload + 16);  // Width
+        const uint32_t h    = readBE32(payload + 20);  // Height
+
+        if (w == 0 || h == 0 || w > 16384 || h > 16384) {
+            qWarning("GigEStream: invalid image size %ux%u (pfnc=0x%08X)", w, h, pfnc);
+            return;
+        }
+
+        qDebug("GigEStream: LEADER block=%u pfnc=0x%08X %ux%u", blockId, pfnc, w, h);
 
         // 새 프레임 시작 → 버퍼 획득
         auto fb = m_freePool->tryPop();
         if (!fb) {
-            // 버퍼 부족: 드롭
             qDebug("GigEStream: frame drop (no free buffer)");
             m_current.reset();
             m_currentBlockId = blockId;
             return;
         }
 
-        // 버퍼 초기화
-        const size_t rawSize = static_cast<size_t>(w) * h * 2; // 최대 16bit/px
+        // raw 버퍼: Bayer8=w*h, Bayer16=w*h*2, RGB8=w*h*3
+        const size_t rawSize = static_cast<size_t>(w) * h * 2;
         if (fb->raw.size() < rawSize) fb->raw.resize(rawSize);
-        const size_t pktCount = (rawSize + 8191) / 8192 + 2; // 추정
+
+        // received 벡터: 패킷 ID 기반, 최대 예상 패킷 수
+        const size_t pktCount = rawSize / 8000 + 4;
         fb->received.assign(pktCount, false);
 
         fb->width             = static_cast<int>(w);
         fb->height            = static_cast<int>(h);
         fb->pfnc              = pfnc;
         fb->blockId           = blockId;
+        fb->packetSize        = 0;
         fb->leaderReceived    = true;
         fb->trailerReceived   = false;
         fb->totalPackets      = 0;

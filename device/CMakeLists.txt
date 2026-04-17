@@ -1,7 +1,3 @@
-# ── device 모듈 ──────────────────────────────────────────────────────────────
-# 담당: deviceinfo / devicemanager / deviceitemwidget
-# 의존: Qt5::Widgets (QWidget, QLabel 등)
-
 add_library(device STATIC
     deviceinfo.h
     devicemanager.h
@@ -9,15 +5,14 @@ add_library(device STATIC
     deviceitemwidget.h
     deviceitemwidget.cpp
 )
+target_include_directories(device PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(device PUBLIC Qt5::Core Qt5::Widgets)
+if(MSVC)
+    target_compile_options(device PRIVATE /utf-8)
+endif()
 
-target_include_directories(device
-    PUBLIC
-        # 이 모듈의 헤더를 다른 모듈이 #include "devicemanager.h" 형태로 사용 가능
-        ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(device
-    PUBLIC
-        Qt5::Core
-        Qt5::Widgets
+# 출력 경로 명시 (LNK1104 방지)
+set_target_properties(device PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )

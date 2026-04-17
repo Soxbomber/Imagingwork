@@ -39,8 +39,14 @@ struct ArvStreamParams {
     uint32_t maximumTransferSize{};
 };
 
-// IRegisterDevice 어댑터 (GenApiController용)
-#include "GenApiController.h"
+// IRegisterDevice: ArvU3vDevice → GenApiController 연결 인터페이스
+struct IRegisterDevice {
+    virtual bool readRegister (uint32_t addr, uint32_t& val)               = 0;
+    virtual bool writeRegister(uint32_t addr, uint32_t  val)               = 0;
+    virtual bool readMemory   (uint32_t addr, uint8_t* buf, uint32_t sz)   = 0;
+    virtual bool writeMemory  (uint32_t addr, const uint8_t* buf, uint32_t sz) = 0;
+    virtual ~IRegisterDevice() = default;
+};
 
 class ArvU3vDeviceRegAdapter : public IRegisterDevice {
 public:

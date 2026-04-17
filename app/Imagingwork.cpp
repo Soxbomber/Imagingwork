@@ -50,29 +50,29 @@ void Imagingwork::onDeviceReadyToLaunch(const DeviceInfo& deviceinfo,
     bool grabbing = camera->StartGrabbing(deviceinfo, dock);
 
     // ④ 뷰어가 닫힐 때 → 카메라 정지
-    // connect 중복 방지: 동일 dock에 이미 연결됐으면 재연결 안 함
     connect(dock, &ImageViewerDock::viewerClosed,
             this, &Imagingwork::onViewerClosed,
             Qt::UniqueConnection);
 
+
     // ⑤ DeviceManager 상태 갱신
-    ui.m_deviceManager->setDeviceConnected(deviceinfo.serialnumber, !grabbing);
+    ui.m_deviceManager->setDeviceConnected(deviceinfo.serialNumber, !grabbing);
     emit ui.m_deviceManager->deviceLaunched(deviceinfo);
 }
 
-void Imagingwork::onViewerClosed(const QString& serialnumber)
+void Imagingwork::onViewerClosed(const QString& description)
 {
     // description으로 해당 드라이버를 찾아 정지
     // (U3V와 UVC가 각각 다른 드라이버를 사용)
     ICameraDriver* camera = ui.m_subWindow
-                            ? ui.m_subWindow->getDriverFor(serialnumber)
+                            ? ui.m_subWindow->getDriverFor(description)
                             : nullptr;
     if (!camera)
         camera = ui.m_subWindow ? ui.m_subWindow->getCamera() : nullptr;
     if (camera)
-        camera->StopGrabbing(serialnumber);
+        camera->StopGrabbing(description);
 
-    ui.m_deviceManager->setDeviceConnected(serialnumber, true);
+    ui.m_deviceManager->setDeviceConnected(description, true);
 }
 
 void Imagingwork::onCamButtonClicked()

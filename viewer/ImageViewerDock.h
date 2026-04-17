@@ -53,7 +53,7 @@ public:
     void    resetZoom();
     void    clearImage();       // 이전 이미지 즉시 제거 및 메모리 해제
     void    acceptFrames();     // clearImage() 후 새 프레임 수신 재개
-    QString serialnumber() const;
+    QString description() const;
 
 public slots:
     void UpdateImageViewer(QImage image);

@@ -163,7 +163,7 @@ void ImageViewerDock::acceptFrames()
 {
     m_accepting = true;
 }
-QString ImageViewerDock::serialnumber() const        { return m_description; }
+QString ImageViewerDock::description() const        { return m_description; }
 
 void ImageViewerDock::onTopLevelChanged(bool floating)
 {

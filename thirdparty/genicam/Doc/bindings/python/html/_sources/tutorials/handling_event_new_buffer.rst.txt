@@ -1,0 +1,120 @@
+*************************
+Handling EVENT_NEW_BUFFER
+*************************
+
+You have learned how to handle events in the previous chapter. In this chapter, we demonstrate a more practical example: How about to learn how we can interact with :const:`~gentl.EVENT_TYPE_LIST.EVENT_NEW_BUFFER` event?
+
+The following class diagram shows the relationship between relevant classes. Note that relationship with the parent object classes of :class:`~gentl.DataStream` class were intentionally omitted to save space in the diagram. The image is stretched following the browser size, or you could see it in the original size opening the image in another tab/window.
+
+.. uml:: ../uml/class/event_new_buffer.uml
+   :align: center
+
+The event data of :const:`~gentl.EVENT_TYPE_LIST.EVENT_NEW_BUFFER` can be accessed through :class:`~gentl.EventManagerNewBuffer` class object. So let's walk through the following steps to see how we can handle event data of :const:`~gentl.EVENT_TYPE_LIST.EVENT_NEW_BUFFER`.
+
+The following import statements are required for this tutorial.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 0
+  :start-after: [begin] the import statement block.
+  :end-before: [end]
+
+First, instantiate a :class:`~genapi.NodeMap` object of the target remote device like we did in a previous chapter.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] instantiate a nodemap object.
+  :end-before: [end]
+
+Note that we used the following class deriving from :class:`~genapi.AbstractPort` class of :mod:`genapi` module.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 0
+  :start-after: [begin] class definition of portimpl.
+  :end-before: [end]
+
+In general having instantiated a :class:`~genapi.NodeMap` object for your remote device you would set up the device through the object so that it fits to your application. After setting up the device, in other words if the device is ready for working on your image acquisition task, accessing :attr:`~gentl.Device.data_stream_ids` property of the :class:`~gentl.Device` class, instantiate a :class:`~gentl.DataStream` object calling :meth:`~gentl.Device.open_data_stream` method. In the following example, it opens the first :class:`~gentl.DataStream` object.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] instantiate a datastream object.
+  :end-before: [end]
+
+Next, determine the minimum number of buffers to be prepared. You must prepare sufficient numbers of buffers anyway. Anyway!
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] inquire minimum required number of buffers.
+  :end-before: [end]
+
+So, let's determine the buffer size. It must not be less than the required at least. If the :class:`~gentl.DataStream` object defines payload size, you can determine the buffer size using its :attr:`~gentl.DataStream.payload_size` property. If the :class:`~gentl.DataStream` object defines the payload size, its :attr:`~gentl.DataStream.defines_payload_size` property returns ``True``. If it doesn't, the remote device would provide GenICam :attr:`PayloadSize` node to let you know the required buffer size.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] determine buffer size.
+  :end-before: [end]
+
+After that, instantiate a :class:`~gentl.BufferToken` object. It's used to announce a raw buffer and its tag data on the :class:`~gentl.DataStream` object. The constructor of :class:`~gentl.BufferToken` class takes :class:`bytes` object as a raw buffer where the transmitter device delivers images and an arbitrary :class:`object` object to tag it on the raw buffer; maybe it would be an :class:`int` object if we go on a simple case.
+
+Instantiating a :class:`~gentl.BufferToken` object, announce the raw buffer as the place where images are delivered. To announce a raw buffer, you call :meth:`~gentl.DataStream.announce_buffer` method of the :class:`~gentl.DataStream` object. :meth:`~gentl.DataStream.announce_buffer` method takes a :class:`~gentl.BufferToken` object as its parameter and the method returns a :class:`~gentl.Buffer` object as its return. After announcing the raw buffer, you queue the :class:`~gentl.Buffer` object to the acquisition engine calling :meth:`~gentl.DataStream.queue_buffer` method to get prepared for image acquisition.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] announcing and queueing buffers.
+  :end-before: [end]
+
+Then register an event calling :meth:`~gentl.IEventCapableModule.register_event` method of the :class:`~gentl.DataStream` object and get an :class:`~gentl.EventToken` object that the method returns. In this example, we register :const:`~gentl.EVENT_TYPE_LIST.EVENT_NEW_BUFFER` event here. Then instantiate an :class:`~gentl.EventManagerNewBuffer` object passing the returned :class:`~gentl.EventToken` object. You have nothing to interact with :class:`~gentl.EventToken` object. Everything will be fine if you just pass it to the constructor of :class:`~gentl.EventManagerNewBuffer` class to have a way to access the event data later.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] registering an event.
+  :end-before: [end]
+
+Now we can start image acquisition and acquire 10 images.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] start image acquisition.
+  :end-before: [end]
+
+If you want to keep acquisition until you call :meth:`~gentl.DataStream.stop_acquisition` method of :class:`~gentl.DataStream` object, just omit passing the second parameter.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] infinite acquisition.
+  :end-before: [end]
+
+Here we start acquiring images and you would manipulate them. You can access the delivered event data over :attr:`~gentl.EventManagerNewBuffer.buffer` property of the :class:`~gentl.EventManagerNewBuffer` object. The :attr:`~gentl.EventManagerNewBuffer.buffer` property returns a :class:`~gentl.Buffer` object then you can read the newly delivered buffer content through :attr:`~gentl.Buffer.raw_buffer` property and its user data through :attr:`~gentl.Buffer.user_data` property of the :class:`~gentl.Buffer` object. In addition, this is just for your information but note that the object that is returned from :attr:`~gentl.Buffer.raw_buffer` property and the object that is returned from :attr:`~gentl.Buffer.user_data` are identical.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] acquiring images.
+  :end-before: [end]
+
+Okay, we have finished to acquire the required number of images. Now we tear it down. First, stop acquisition and flush the event queue.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] flush the event queue.
+  :end-before: [end]
+
+Here's another tear down. Stop acquisition and stop monitoring :const:`~gentl.EVENT_TYPE_LIST.EVENT_NEW_BUFFER` event. Then revoke the announced raw buffers calling :meth:`~gentl.DataStream.revoke_buffer` method.
+
+.. literalinclude:: ../../../../../../../tests/GenTL/GenTLTestPython/test_tutorial_handling_event_new_buffer.py
+  :language: python
+  :dedent: 8
+  :start-after: [begin] tear down for handing eventnewbuffer.
+  :end-before: [end]
+
+That's all. We hope you have got feeling of handling events with the GenTL-Python Binding.

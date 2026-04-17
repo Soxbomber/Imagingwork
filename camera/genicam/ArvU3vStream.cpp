@@ -105,13 +105,18 @@ void ArvU3vStream::Start()
             const size_t sz =
                 static_cast<size_t>(m_params.reqPayloadSize);
             std::vector<uint8_t> dummy(sz);
+            // drop: payload를 읽어서 버림 (USB 버퍼 클리어)
             size_t rx = 0;
+            const unsigned int dropTimeout =
+                (m_params.payloadSize / 1000u > 2000u)
+                ? static_cast<unsigned int>(m_params.payloadSize / 1000u)
+                : 2000u;
             for (uint32_t p = 0;
                  p < m_params.payloadCount && m_running; ++p) {
                 int cx = 0;
                 m_device->bulkReadData(
                     dummy.data() + rx,
-                    static_cast<int>(m_params.payloadSize), cx, 5000);
+                    static_cast<int>(m_params.payloadSize), cx, dropTimeout);
                 rx += static_cast<size_t>(cx);
                 if (cx < static_cast<int>(m_params.payloadSize)) break;
             }
@@ -119,7 +124,7 @@ void ArvU3vStream::Start()
                 int cx = 0;
                 m_device->bulkReadData(
                     dummy.data() + rx,
-                    static_cast<int>(m_params.transfer1Size), cx, 5000);
+                    static_cast<int>(m_params.transfer1Size), cx, dropTimeout);
             }
             int t = 0;
             m_device->bulkReadData(trailerBuf.data(),
@@ -134,13 +139,22 @@ void ArvU3vStream::Start()
         // 버퍼 크기 보장
         if (fb->data.size() < expected) fb->data.resize(expected);
 
+        // ── Payload 수신 ────────────────────────────────────────────────
+        // payloadCount=1(최적화), 또는 분할 수신도 지원
+        // 타임아웃: USB3 @ 5Gbps, 5MP=4.8MB → 이론 8ms
+        //          여유 포함 2000ms (단, 실제 WinUSB 오버헤드는 1회 호출당 ~15ms)
         size_t received = 0;
+        const unsigned int payloadTimeoutMs =
+            (m_params.payloadSize / 1000u > 2000u)
+            ? static_cast<unsigned int>(m_params.payloadSize / 1000u)
+            : 2000u;
+
         for (uint32_t p = 0;
              p < m_params.payloadCount && m_running; ++p) {
             const int chunk = static_cast<int>(m_params.payloadSize);
             int cx = 0;
             m_device->bulkReadData(fb->data.data() + received,
-                                    chunk, cx, 5000);
+                                    chunk, cx, payloadTimeoutMs);
             received += static_cast<size_t>(cx);
             if (cx < chunk) break;
         }
