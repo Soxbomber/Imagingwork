@@ -66,70 +66,103 @@ void GigEStream::Start()
            (unsigned long long)m_fullQueue->droppedCount());
 }
 
-// ── processPacket: GVSP 패킷 파싱 및 프레임 조립 ─────────────────────────────
+// ── processPacket: GVSP packet parsing and frame assembly ────────────────────
+// Supports both standard (16-bit block ID) and extended (64-bit block ID, GV 2.0+)
+// header formats per GV 2.2 §16.2.
 void GigEStream::processPacket(const uint8_t* data, int size)
 {
-    // GVSP 최소 크기: status(2) + block_id(2) + packet_infos(4) = 8 bytes
-    if (size < 8) return;
+    // Minimum GVSP header: status(2) + block_id(2) + packet_infos(4) = 8 bytes
+    if (size < GVSP_HEADER_SIZE) return;
 
     const uint16_t status = (uint16_t(data[0]) << 8) | data[1];
     if (status != GVSP_STATUS_SUCCESS) return;
 
-    const uint16_t blockId    = (uint16_t(data[2]) << 8) | data[3];
-    const uint32_t pktInfos   = (uint32_t(data[4]) << 24) |
-                                 (uint32_t(data[5]) << 16) |
-                                 (uint32_t(data[6]) << 8)  |
-                                  uint32_t(data[7]);
+    const uint32_t pktInfos = (uint32_t(data[4]) << 24) |
+                               (uint32_t(data[5]) << 16) |
+                               (uint32_t(data[6]) <<  8) |
+                                uint32_t(data[7]);
 
-    const uint8_t  contentType = uint8_t((pktInfos >> 24) & 0x7F);
-    const uint32_t packetId    = pktInfos & 0x00FFFFFF;
+    const bool extMode = (pktInfos & GVSP_EXT_ID_FLAG) != 0;
+    const uint8_t contentType =
+        uint8_t((pktInfos & GVSP_CONTENT_TYPE_MASK) >> GVSP_CONTENT_TYPE_SHIFT);
 
-    const uint8_t* payload = data + 8;
-    const int      payloadSize = size - 8;
+    uint64_t       blockId;
+    uint32_t       packetId;
+    const uint8_t* payload;
+    int            payloadSize;
+
+    if (extMode) {
+        // Extended header (GV 2.0+): 20 bytes total
+        // byte[8-11]:  block_id_high32
+        // byte[12-15]: block_id_low32
+        // byte[16-19]: 32-bit packet_id
+        if (size < GVSP_EXT_HEADER_SIZE) return;
+
+        const uint32_t blockIdHigh = (uint32_t(data[ 8]) << 24) |
+                                      (uint32_t(data[ 9]) << 16) |
+                                      (uint32_t(data[10]) <<  8) |
+                                       uint32_t(data[11]);
+        const uint32_t blockIdLow  = (uint32_t(data[12]) << 24) |
+                                      (uint32_t(data[13]) << 16) |
+                                      (uint32_t(data[14]) <<  8) |
+                                       uint32_t(data[15]);
+        blockId   = (uint64_t(blockIdHigh) << 32) | blockIdLow;
+        packetId  = (uint32_t(data[16]) << 24) |
+                    (uint32_t(data[17]) << 16) |
+                    (uint32_t(data[18]) <<  8) |
+                     uint32_t(data[19]);
+        payload     = data + GVSP_EXT_HEADER_SIZE;
+        payloadSize = size - GVSP_EXT_HEADER_SIZE;
+    } else {
+        blockId   = (uint16_t(data[2]) << 8) | data[3];
+        packetId  = pktInfos & GVSP_PACKET_ID_MASK;
+        payload     = data + GVSP_HEADER_SIZE;
+        payloadSize = size - GVSP_HEADER_SIZE;
+    }
 
     switch (contentType) {
 
-    // ── LEADER ───────────────────────────────────────────────────────────────
+    // ── LEADER ────────────────────────────────────────────────────────────────
     case GVSP_CONTENT_LEADER: {
-        // GigE Vision 2.0 Spec Table 15-4 Image Data Leader:
-        //   payload[0:3]   = Timestamp High (4 bytes)
-        //   payload[4:7]   = Timestamp Low  (4 bytes)
-        //   payload[8:9]   = Payload Type   (2 bytes, big-endian) = 0x0001 IMAGE
-        //   payload[10:11] = Reserved       (2 bytes)
-        //   payload[12:15] = Pixel Format   (4 bytes, big-endian, PFNC)
-        //   payload[16:19] = Size X / Width (4 bytes, big-endian)
-        //   payload[20:23] = Size Y / Height(4 bytes, big-endian)
-        //
-        // pcap 검증 (gige2.pcapng pkt 314):
-        //   payload hex: 00000001 000005B4 C64416C0 01080009 000005A0 00000438
-        //   offset 8:9  = 0xC644 → Timestamp 일부 (아님)
-        //   실제: payload[12:15]=0x01080009=BayerGR8, [16:19]=1440, [20:23]=1080
+        // GV 2.2 Table 16-9 Image Data Leader layout:
+        //   payload[0-1]   = reserved
+        //   payload[2-3]   = payload_type (big-endian, 0x0001 = IMAGE)
+        //   payload[4-7]   = timestamp_high
+        //   payload[8-11]  = timestamp_low
+        //   payload[12-15] = pixel_format (PFNC, big-endian)
+        //   payload[16-19] = size_x / width
+        //   payload[20-23] = size_y / height
+        if (payloadSize < GVSP_LEADER_MIN_SIZE) return;
 
-        if (payloadSize < 24) return;  // 최소 24 bytes (timestamp8 + type2 + rsv2 + pfnc4 + w4 + h4)
-
-        auto readBE16 = [&](const uint8_t* p) -> uint16_t {
+        auto readBE16 = [](const uint8_t* p) -> uint16_t {
             return (uint16_t(p[0]) << 8) | uint16_t(p[1]);
         };
-        auto readBE32 = [&](const uint8_t* p) -> uint32_t {
+        auto readBE32 = [](const uint8_t* p) -> uint32_t {
             return (uint32_t(p[0])<<24)|(uint32_t(p[1])<<16)|
-                   (uint32_t(p[2])<<8)|uint32_t(p[3]);
+                   (uint32_t(p[2])<<8) | uint32_t(p[3]);
         };
 
-        const uint16_t payloadType = readBE16(payload + 8);
-        if (payloadType != 0x0001) return;  // IMAGE only
+        // payload_type is at offset 2, NOT offset 8
+        const uint16_t payloadType = readBE16(payload + 2);
+        if (payloadType != GVSP_PAYLOAD_TYPE_IMAGE) {
+            qDebug("GigEStream: LEADER block=0x%llX unsupported payload_type=0x%04X",
+                   (unsigned long long)blockId, payloadType);
+            return;
+        }
 
-        const uint32_t pfnc = readBE32(payload + 12);  // Pixel Format (PFNC)
-        const uint32_t w    = readBE32(payload + 16);  // Width
-        const uint32_t h    = readBE32(payload + 20);  // Height
+        const uint32_t pfnc = readBE32(payload + 12);
+        const uint32_t w    = readBE32(payload + 16);
+        const uint32_t h    = readBE32(payload + 20);
 
         if (w == 0 || h == 0 || w > 16384 || h > 16384) {
             qWarning("GigEStream: invalid image size %ux%u (pfnc=0x%08X)", w, h, pfnc);
             return;
         }
 
-        qDebug("GigEStream: LEADER block=%u pfnc=0x%08X %ux%u", blockId, pfnc, w, h);
+        qDebug("GigEStream: LEADER block=0x%llX pfnc=0x%08X %ux%u%s",
+               (unsigned long long)blockId, pfnc, w, h,
+               extMode ? " [ext]" : "");
 
-        // 새 프레임 시작 → 버퍼 획득
         auto fb = m_freePool->tryPop();
         if (!fb) {
             qDebug("GigEStream: frame drop (no free buffer)");
@@ -138,37 +171,32 @@ void GigEStream::processPacket(const uint8_t* data, int size)
             return;
         }
 
-        // raw 버퍼: Bayer8=w*h, Bayer16=w*h*2, RGB8=w*h*3
         const size_t rawSize = static_cast<size_t>(w) * h * 2;
         if (fb->raw.size() < rawSize) fb->raw.resize(rawSize);
 
-        // received 벡터: 패킷 ID 기반, 최대 예상 패킷 수
         const size_t pktCount = rawSize / 8000 + 4;
         fb->received.assign(pktCount, false);
 
-        fb->width             = static_cast<int>(w);
-        fb->height            = static_cast<int>(h);
-        fb->pfnc              = pfnc;
-        fb->blockId           = blockId;
-        fb->packetSize        = 0;
-        fb->leaderReceived    = true;
-        fb->trailerReceived   = false;
-        fb->totalPackets      = 0;
+        fb->width           = static_cast<int>(w);
+        fb->height          = static_cast<int>(h);
+        fb->pfnc            = pfnc;
+        fb->blockId         = blockId;
+        fb->packetSize      = 0;
+        fb->leaderReceived  = true;
+        fb->trailerReceived = false;
+        fb->totalPackets    = 0;
 
         m_current        = std::move(fb);
         m_currentBlockId = blockId;
         break;
     }
 
-    // ── DATA_BLOCK ────────────────────────────────────────────────────────────
+    // ── PAYLOAD (data block) ──────────────────────────────────────────────────
     case GVSP_CONTENT_PAYLOAD: {
         if (!m_current || m_currentBlockId != blockId) return;
         if (payloadSize <= 0) return;
 
-        // packetId는 1-based (1 = 첫 데이터 패킷, leader=0)
-        // 데이터 오프셋 계산
-        // 각 데이터 패킷 크기는 일정 (마지막 제외)
-        // 첫 패킷(packetId=1)이 오면 패킷 크기를 확정
+        // packet IDs are 1-based; leader = 0, first data = 1
         if (m_current->packetSize == 0 && packetId == 1)
             m_current->packetSize = static_cast<uint32_t>(payloadSize);
 
@@ -177,8 +205,8 @@ void GigEStream::processPacket(const uint8_t* data, int size)
                                  : static_cast<uint32_t>(payloadSize);
         const size_t offset = static_cast<size_t>(packetId - 1) * pktSize;
 
-        if (offset + payloadSize > m_current->raw.size())
-            m_current->raw.resize(offset + payloadSize);
+        if (offset + static_cast<size_t>(payloadSize) > m_current->raw.size())
+            m_current->raw.resize(offset + static_cast<size_t>(payloadSize));
         if (packetId >= m_current->received.size())
             m_current->received.resize(packetId + 1, false);
 
@@ -193,10 +221,8 @@ void GigEStream::processPacket(const uint8_t* data, int size)
         if (!m_current || m_currentBlockId != blockId) return;
 
         m_current->trailerReceived = true;
-        // totalPackets = last data packet_id (TRAILER 직전)
-        m_current->totalPackets = packetId; // TRAILER의 packetId는 마지막 데이터 다음
+        m_current->totalPackets    = packetId;
 
-        // 프레임 완성 → 변환 큐로 push
         m_fullQueue->push(std::move(m_current));
         m_current.reset();
         break;

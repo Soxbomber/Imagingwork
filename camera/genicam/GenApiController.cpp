@@ -47,14 +47,13 @@ bool GenApiController::loadXml(const std::vector<uint8_t>& xmlData,
             ? GA::ContentType_ZippedXml
             : GA::ContentType_Xml;
 
-        // static으로 유지 → INodeMap 수명 보장
-        static GA::CNodeMapFactory s_factory;
-        s_factory = GA::CNodeMapFactory(contentType,
+        // Member factory — each GenApiController owns its NodeMap lifetime
+        m_factory = GA::CNodeMapFactory(contentType,
                                         xmlData.data(),
                                         xmlData.size());
 
         // 3. NodeMap 생성
-        m_nodeMap = s_factory.CreateNodeMap();
+        m_nodeMap = m_factory.CreateNodeMap();
 
         // 4. Port 연결 (Device 표준 포트)
         if (m_nodeMap && !m_nodeMap->Connect(m_port)) {

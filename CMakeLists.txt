@@ -8,6 +8,17 @@ project(Imagingwork)
 
 if(MSVC)
     add_compile_options(/utf-8)
+    # Force /MD (Release CRT) in all configurations so Debug builds can link
+    # against GenICam SDK, which ships only /MD DLLs (no /MDd variants).
+    # This loses the debug-heap overrun checks but keeps full debugger support.
+    foreach(_flag
+        CMAKE_C_FLAGS_DEBUG   CMAKE_C_FLAGS_RELWITHDEBINFO
+        CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+        string(REPLACE "/MDd" "/MD" ${_flag} "${${_flag}}")
+    endforeach()
+    # Since we use /MD everywhere, map Qt's Debug-config imports to their
+    # Release builds (Qt5Core.dll, not Qt5Cored.dll) to avoid CRT mismatch.
+    set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
 endif()
 
 set(CMAKE_GENERATOR_PLATFORM "x64"  CACHE STRING "" FORCE)

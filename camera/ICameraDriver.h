@@ -2,8 +2,16 @@
 
 #include <QObject>
 #include <QList>
+#include <optional>
 #include "deviceinfo.h"
 #include "ImageViewerDock.h"
+
+// Pre-acquisition NodeMap parameters applied before AcquisitionStart.
+// Use std::nullopt to leave a parameter at the camera's current/default value.
+struct NodeMapInitParams {
+    std::optional<double> exposureTime_us;  // ExposureTime in microseconds
+    std::optional<double> gain_dB;          // Gain in dB (falls back to GainRaw)
+};
 
 // ICameraDriver - camera backend abstract interface
 // GenICamDriver implements this interface.

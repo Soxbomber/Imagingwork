@@ -71,8 +71,9 @@ public:
 
 private:
     void reset();
-    GvspPort*     m_port    {nullptr};
-    GA::INodeMap* m_nodeMap {nullptr};
+    GvspPort*            m_port    {nullptr};
+    GA::INodeMap*        m_nodeMap {nullptr};
+    GA::CNodeMapFactory  m_factory;           // owns the NodeMap lifetime
 };
 
 #else  // HAVE_GENICAM_SDK 미정의: 스텁 (빌드만 통과)

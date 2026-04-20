@@ -28,7 +28,7 @@ struct GigEFrameBuffer {
     uint32_t pfnc{};
     uint32_t packetSize{};
     uint32_t totalPackets{};
-    uint32_t blockId{};
+    uint64_t blockId{};          // 64-bit block ID (GV 2.0+ extended mode)
     bool     leaderReceived{false};
     bool     trailerReceived{false};
     QImage   outImage;
@@ -133,5 +133,5 @@ private:
     std::unique_ptr<GigEFrameQueue> m_fullQueue;
 
     std::unique_ptr<GigEFrameBuffer> m_current;
-    uint16_t m_currentBlockId{0xFFFF};
+    uint64_t m_currentBlockId{0xFFFFFFFFFFFFFFFFULL};  // 64-bit block ID
 };

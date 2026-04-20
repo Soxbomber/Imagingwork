@@ -34,6 +34,9 @@ struct GigECameraCtx {
 
     // GenApi (AcquisitionStart/Stop 주소)
     GenApiController genApi;  // GenICam SDK 기반 NodeMap 제어
+
+    // Parameters applied to NodeMap before AcquisitionStart
+    NodeMapInitParams initParams;
 };
 
 class GigECameraDriver : public ICameraDriver
@@ -51,6 +54,10 @@ public:
     // Switch/Hub 환경: 유니캐스트 탐색용 카메라 IP 직접 등록
     void addKnownIp(const QHostAddress& ip);
     void clearKnownIps();
+
+    // Store parameters to be applied to NodeMap before AcquisitionStart.
+    // Must be called before StartGrabbing().
+    void setInitParams(const QString& description, const NodeMapInitParams& p);
 
 private:
     void stopCtx(GigECameraCtx& ctx);

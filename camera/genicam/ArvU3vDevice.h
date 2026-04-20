@@ -102,6 +102,9 @@ public:
     bool executeAcquisitionStart();
     bool executeAcquisitionStop();
 
+    // Parsed NodeMap — valid after loadGenApi()
+    const ArvGenApiInfo& genApiInfo() const { return m_genApi; }
+
     // data endpoint bulk read
     bool bulkReadData(void* buf, int length, int& transferred,
                       unsigned int timeoutMs = 5000);

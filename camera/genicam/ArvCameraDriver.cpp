@@ -1,5 +1,74 @@
 #include "ArvCameraDriver.h"
 #include <QDebug>
+#include <cstring>
+
+// ── Direct register helpers (no SDK — works in Debug and Release) ─────────────
+static uint32_t bswap32(uint32_t v)
+{
+    return ((v & 0xFF000000u) >> 24) | ((v & 0x00FF0000u) >> 8)
+         | ((v & 0x0000FF00u) <<  8) | ((v & 0x000000FFu) << 24);
+}
+static uint64_t bswap64(uint64_t v)
+{
+    return ((v & 0xFF00000000000000ULL) >> 56) | ((v & 0x00FF000000000000ULL) >> 40)
+         | ((v & 0x0000FF0000000000ULL) >> 24) | ((v & 0x000000FF00000000ULL) >>  8)
+         | ((v & 0x00000000FF000000ULL) <<  8) | ((v & 0x0000000000FF0000ULL) << 24)
+         | ((v & 0x000000000000FF00ULL) << 40) | ((v & 0x00000000000000FFULL) << 56);
+}
+static bool writeGenApiInteger(ArvU3vDevice& dev, const GenApiNode& node, int64_t val)
+{
+    if (!node.valid) return false;
+    if (node.length >= 8) {
+        uint64_t raw = static_cast<uint64_t>(val);
+        if (node.bigEndian) raw = bswap64(raw);
+        return dev.writeMemory(node.address, &raw, 8);
+    }
+    uint32_t raw = static_cast<uint32_t>(static_cast<int32_t>(val));
+    if (node.bigEndian) raw = bswap32(raw);
+    return dev.writeMemory(node.address, &raw, 4);
+}
+static bool writeGenApiFloat(ArvU3vDevice& dev, const GenApiNode& node, double val)
+{
+    if (!node.valid) return false;
+    if (node.length >= 8) {
+        uint64_t raw; std::memcpy(&raw, &val, 8);
+        if (node.bigEndian) raw = bswap64(raw);
+        return dev.writeMemory(node.address, &raw, 8);
+    }
+    float fval = static_cast<float>(val);
+    uint32_t raw; std::memcpy(&raw, &fval, 4);
+    if (node.bigEndian) raw = bswap32(raw);
+    return dev.writeMemory(node.address, &raw, 4);
+}
+static bool readGenApiInteger(ArvU3vDevice& dev, const GenApiNode& node, int64_t& out)
+{
+    if (!node.valid) return false;
+    if (node.length >= 8) {
+        uint64_t raw{};
+        if (!dev.readMemory(node.address, &raw, 8)) return false;
+        if (node.bigEndian) raw = bswap64(raw);
+        out = static_cast<int64_t>(raw); return true;
+    }
+    uint32_t raw{};
+    if (!dev.readMemory(node.address, &raw, 4)) return false;
+    if (node.bigEndian) raw = bswap32(raw);
+    out = static_cast<int64_t>(static_cast<int32_t>(raw)); return true;
+}
+static bool readGenApiFloat(ArvU3vDevice& dev, const GenApiNode& node, double& out)
+{
+    if (!node.valid) return false;
+    if (node.length >= 8) {
+        uint64_t raw{};
+        if (!dev.readMemory(node.address, &raw, 8)) return false;
+        if (node.bigEndian) raw = bswap64(raw);
+        std::memcpy(&out, &raw, 8); return true;
+    }
+    uint32_t raw{};
+    if (!dev.readMemory(node.address, &raw, 4)) return false;
+    if (node.bigEndian) raw = bswap32(raw);
+    float fval; std::memcpy(&fval, &raw, 4);
+    out = static_cast<double>(fval); return true;
+}
 
 ArvCameraDriver::ArvCameraDriver(QObject* parent) : ICameraDriver(parent)
 {
@@ -107,6 +176,38 @@ bool ArvCameraDriver::StartGrabbing(const DeviceInfo& di,
                      "AcquisitionStart may not work");
         }
 
+        // ── 3a. GenApiController 설정 (NodeMap 파라미터 제어용) ──────────
+        {
+            const QByteArray xmlData = ctx->device.downloadXml();
+            if (xmlData.isEmpty()) {
+                qWarning("ArvCameraDriver: downloadXml returned empty - "
+                         "camera may not support re-reading manifest");
+            } else {
+                bool isZipped = (xmlData.size() >= 4 &&
+                                 (uint8_t)xmlData[0] == 0x50 &&
+                                 (uint8_t)xmlData[1] == 0x4B);
+                std::vector<uint8_t> xmlVec(
+                    reinterpret_cast<const uint8_t*>(xmlData.constData()),
+                    reinterpret_cast<const uint8_t*>(xmlData.constData()) + xmlData.size());
+                auto readFn = [&ctx](void* buf, int64_t addr, int64_t len) {
+                    ctx->device.readMemory(static_cast<uint64_t>(addr), buf,
+                                           static_cast<uint32_t>(len));
+                };
+                auto writeFn = [&ctx](const void* buf, int64_t addr, int64_t len) {
+                    ctx->device.writeMemory(static_cast<uint64_t>(addr), buf,
+                                            static_cast<uint32_t>(len));
+                };
+                ctx->controller = std::make_unique<GenApiController>();
+                if (ctx->controller->loadXml(xmlVec, isZipped, readFn, writeFn))
+                    qDebug("ArvCameraDriver: GenApiController OK (%zu nodes)",
+                           ctx->controller->getNodeNames().size());
+                else {
+                    qWarning("ArvCameraDriver: GenApiController load failed");
+                    ctx->controller.reset();
+                }
+            }
+        }
+
         // ── 4. Stream enable (SIRM 설정 + data EP reset) ──────────────────
         if (!ctx->device.enableStream(ctx->streamParams)) {
             qWarning("ArvCameraDriver: enableStream failed");
@@ -129,6 +230,36 @@ bool ArvCameraDriver::StartGrabbing(const DeviceInfo& di,
                          });
 
         ctx->thread.start();
+
+        // ── 5a. Pre-acquisition NodeMap parameters (direct register write) ──
+        // Uses ArvGenApiXml data — works in Debug and Release, no SDK needed.
+        {
+            const auto& genApi = ctx->device.genApiInfo();
+            if (ctx->initParams.exposureTime_us.has_value()) {
+                const double us = *ctx->initParams.exposureTime_us;
+                bool ok = false;
+                if (const GenApiNode* n = genApi.get("ExposureTime")) {
+                    ok = (n->type == GenApiNodeType::Integer)
+                       ? writeGenApiInteger(ctx->device, *n,
+                                            static_cast<int64_t>(us * 1000.0))
+                       : writeGenApiFloat(ctx->device, *n, us);
+                }
+                qDebug("ArvCameraDriver: pre-acq ExposureTime=%.1f us %s",
+                       us, ok ? "OK" : "FAILED");
+            }
+            if (ctx->initParams.gain_dB.has_value()) {
+                const double dB = *ctx->initParams.gain_dB;
+                bool ok = false;
+                const GenApiNode* n = genApi.get("Gain");
+                if (!n) n = genApi.get("GainRaw");
+                if (n)  ok = (n->type == GenApiNodeType::Integer)
+                           ? writeGenApiInteger(ctx->device, *n,
+                                                static_cast<int64_t>(dB))
+                           : writeGenApiFloat(ctx->device, *n, dB);
+                qDebug("ArvCameraDriver: pre-acq Gain=%.2f dB %s",
+                       dB, ok ? "OK" : "FAILED");
+            }
+        }
 
         // ── 6. AcquisitionStart (카메라 센서 전송 시작) ───────────────────
         // Aravis: arv_camera_execute_command("AcquisitionStart")
@@ -229,46 +360,55 @@ bool ArvCameraDriver::setResolution(const QString& desc,
 bool ArvCameraDriver::setExposureTime(const QString& desc, double us)
 {
     ArvCameraCtx* ctx = findCtx(desc);
-    if (!ctx || !ctx->controller) return false;
-    auto& ctrl = *ctx->controller;
-
-    // ExposureTime 노드가 Integer(ns)인 경우 자동 변환
-    if (ctrl.nodeType("ExposureTime") == GenApiController::NodeType::Integer)
-        return ctrl.setInteger("ExposureTime",
-                               static_cast<int64_t>(us * 1000.0)); // us→ns
-    return ctrl.setFloat("ExposureTime", us);
+    if (!ctx) return false;
+    const GenApiNode* n = ctx->device.genApiInfo().get("ExposureTime");
+    if (!n) return false;
+    return (n->type == GenApiNodeType::Integer)
+         ? writeGenApiInteger(ctx->device, *n, static_cast<int64_t>(us * 1000.0))
+         : writeGenApiFloat  (ctx->device, *n, us);
 }
 
 bool ArvCameraDriver::getExposureTime(const QString& desc, double& us)
 {
     ArvCameraCtx* ctx = findCtx(desc);
-    if (!ctx || !ctx->controller) return false;
-    auto& ctrl = *ctx->controller;
-
-    if (ctrl.nodeType("ExposureTime") == GenApiController::NodeType::Integer) {
-        int64_t ns{}; bool ok = ctrl.getInteger("ExposureTime", ns);
-        if (ok) us = ns / 1000.0; return ok;
+    if (!ctx) return false;
+    const GenApiNode* n = ctx->device.genApiInfo().get("ExposureTime");
+    if (!n) return false;
+    if (n->type == GenApiNodeType::Integer) {
+        int64_t ns{};
+        if (!readGenApiInteger(ctx->device, *n, ns)) return false;
+        us = ns / 1000.0;
+        return true;
     }
-    return ctrl.getFloat("ExposureTime", us);
+    return readGenApiFloat(ctx->device, *n, us);
 }
 
 bool ArvCameraDriver::setGain(const QString& desc, double dB)
 {
     ArvCameraCtx* ctx = findCtx(desc);
-    if (!ctx || !ctx->controller) return false;
-    // Gain이 없으면 GainRaw 시도
-    if (ctx->controller->hasNode("Gain"))
-        return ctx->controller->setFloat("Gain", dB);
-    return ctx->controller->setFloat("GainRaw", dB);
+    if (!ctx) return false;
+    const GenApiNode* n = ctx->device.genApiInfo().get("Gain");
+    if (!n) n = ctx->device.genApiInfo().get("GainRaw");
+    if (!n) return false;
+    return (n->type == GenApiNodeType::Integer)
+         ? writeGenApiInteger(ctx->device, *n, static_cast<int64_t>(dB))
+         : writeGenApiFloat  (ctx->device, *n, dB);
 }
 
 bool ArvCameraDriver::getGain(const QString& desc, double& dB)
 {
     ArvCameraCtx* ctx = findCtx(desc);
-    if (!ctx || !ctx->controller) return false;
-    if (ctx->controller->hasNode("Gain"))
-        return ctx->controller->getFloat("Gain", dB);
-    return ctx->controller->getFloat("GainRaw", dB);
+    if (!ctx) return false;
+    const GenApiNode* n = ctx->device.genApiInfo().get("Gain");
+    if (!n) n = ctx->device.genApiInfo().get("GainRaw");
+    if (!n) return false;
+    if (n->type == GenApiNodeType::Integer) {
+        int64_t raw{};
+        if (!readGenApiInteger(ctx->device, *n, raw)) return false;
+        dB = static_cast<double>(raw);
+        return true;
+    }
+    return readGenApiFloat(ctx->device, *n, dB);
 }
 
 bool ArvCameraDriver::setFrameRate(const QString& desc, double fps)
@@ -300,6 +440,13 @@ bool ArvCameraDriver::getFrameRate(const QString& desc, double& fps)
     if (ctrl.hasNode("ResultingFrameRate"))
         return ctrl.getFloat("ResultingFrameRate", fps);
     return ctrl.getFloat("FrameRate", fps);
+}
+
+void ArvCameraDriver::setInitParams(const QString& desc,
+                                     const NodeMapInitParams& p)
+{
+    ArvCameraCtx* ctx = findCtx(desc);
+    if (ctx) ctx->initParams = p;
 }
 
 bool ArvCameraDriver::setInteger(const QString& desc,

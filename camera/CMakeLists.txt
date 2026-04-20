@@ -34,21 +34,17 @@ if(EXISTS "${GENICAM_SDK_ROOT}/library/CPP/include/GenApi/GenApi.h")
     target_include_directories(camera PUBLIC
         "${GENICAM_SDK_ROOT}/library/CPP/include")
 
-    # GenICam SDK는 Release(/MD) 런타임만 제공
-    # Debug(/MDd)와 혼합 시 _ITERATOR_DEBUG_LEVEL 불일치(LNK2038) 발생
-    # → generator expression으로 Release 빌드에서만 lib 링크
+    # /MD is forced for all configs in the root CMakeLists, so the SDK libs
+    # can be linked in Debug without _ITERATOR_DEBUG_LEVEL mismatch (LNK2038).
     set(GENICAM_LIB_DIR "${GENICAM_SDK_ROOT}/library/CPP/lib/Win64_x64")
     target_link_libraries(camera PUBLIC
-        "$<$<NOT:$<CONFIG:Debug>>:${GENICAM_LIB_DIR}/GenApi_MD_VC141_v3_5.lib>"
-        "$<$<NOT:$<CONFIG:Debug>>:${GENICAM_LIB_DIR}/GCBase_MD_VC141_v3_5.lib>"
-        "$<$<NOT:$<CONFIG:Debug>>:${GENICAM_LIB_DIR}/XmlParser_MD_VC141_v3_5.lib>"
-        "$<$<NOT:$<CONFIG:Debug>>:${GENICAM_LIB_DIR}/Log_MD_VC141_v3_5.lib>"
+        "${GENICAM_LIB_DIR}/GenApi_MD_VC141_v3_5.lib"
+        "${GENICAM_LIB_DIR}/GCBase_MD_VC141_v3_5.lib"
+        "${GENICAM_LIB_DIR}/XmlParser_MD_VC141_v3_5.lib"
+        "${GENICAM_LIB_DIR}/Log_MD_VC141_v3_5.lib"
     )
-    # HAVE_GENICAM_SDK: Release에서만 정의 (스텁과 실구현 전환)
-    target_compile_definitions(camera PUBLIC
-        $<$<NOT:$<CONFIG:Debug>>:HAVE_GENICAM_SDK>
-    )
-    message(STATUS "GenICam SDK: Release=full, Debug=stub (avoids LNK2038)")
+    target_compile_definitions(camera PUBLIC HAVE_GENICAM_SDK)
+    message(STATUS "GenICam SDK: enabled for all configurations")
 
 else()
     message(WARNING

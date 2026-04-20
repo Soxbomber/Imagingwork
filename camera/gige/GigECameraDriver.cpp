@@ -185,11 +185,27 @@ bool GigECameraDriver::StartGrabbing(const DeviceInfo& di,
 
         // ── 8. AcquisitionStart (GenICam SDK) ────────────────────────────────
         if (ctx->genApi.isLoaded()) {
-            // AcquisitionMode = Continuous (기본값 확인)
             ctx->genApi.setEnum("AcquisitionMode", "Continuous");
-            // TriggerMode = Off (소프트웨어 트리거 없이)
             ctx->genApi.setEnum("TriggerMode", "Off");
-            // AcquisitionStart Command 실행
+
+            // Pre-acquisition NodeMap parameters
+            if (ctx->initParams.exposureTime_us.has_value()) {
+                const double us = *ctx->initParams.exposureTime_us;
+                if (ctx->genApi.nodeType("ExposureTime") == GenApiController::NodeType::Integer)
+                    ctx->genApi.setInteger("ExposureTime", static_cast<int64_t>(us * 1000.0));
+                else
+                    ctx->genApi.setFloat("ExposureTime", us);
+                qDebug("GigECameraDriver: pre-acq ExposureTime=%.1f us", us);
+            }
+            if (ctx->initParams.gain_dB.has_value()) {
+                const double dB = *ctx->initParams.gain_dB;
+                if (ctx->genApi.hasNode("Gain"))
+                    ctx->genApi.setFloat("Gain", dB);
+                else
+                    ctx->genApi.setFloat("GainRaw", dB);
+                qDebug("GigECameraDriver: pre-acq Gain=%.2f dB", dB);
+            }
+
             if (!ctx->genApi.execute("AcquisitionStart"))
                 qWarning("GigECameraDriver: AcquisitionStart failed");
             else
@@ -295,6 +311,18 @@ QHostAddress GigECameraDriver::findLocalIp(const QHostAddress& cameraIp)
     }
 
     return QHostAddress(); // not found
+}
+
+// ── setInitParams ─────────────────────────────────────────────────────────────
+void GigECameraDriver::setInitParams(const QString& description,
+                                      const NodeMapInitParams& p)
+{
+    for (auto& ctx : m_cameras) {
+        if (ctx->deviceinfo.serialNumber == description) {
+            ctx->initParams = p;
+            return;
+        }
+    }
 }
 
 // ── addKnownIp / clearKnownIps ────────────────────────────────────────────────

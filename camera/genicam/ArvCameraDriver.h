@@ -29,6 +29,9 @@ struct ArvCameraCtx {
     ArvGenApiInfo                        genApiInfo;
     std::unique_ptr<ArvU3vDeviceRegAdapter> regAdapter;
     std::unique_ptr<GenApiController>    controller;
+
+    // Parameters applied to NodeMap before AcquisitionStart
+    NodeMapInitParams initParams;
 };
 
 class ArvCameraDriver : public ICameraDriver
@@ -68,7 +71,9 @@ public:
     bool setEnum   (const QString& description, const QString& node,
                     const QString& entry);
 
-
+    // Store parameters to be applied to NodeMap before AcquisitionStart.
+    // Must be called before StartGrabbing().
+    void setInitParams(const QString& description, const NodeMapInitParams& p);
 
 private:
     ArvCameraCtx* findCtx(const QString& description);

@@ -1,12 +1,14 @@
 #pragma once
 // ============================================================
-// GigEDevice.h
-// GigE Vision GVCP 제어 채널 (Aravis arvgvdevice.c 포팅)
+// GigEDevice.h — GigE Vision 2.2 GVCP control channel
 //
-// GVCP over UDP (포트 3956):
-//   readRegister / writeRegister / readMemory / writeMemory
-//   Discovery (broadcast UDP)
-//   Heartbeat (1초 주기 keep-alive)
+// GVCP over UDP (port 3956):
+//   readRegister / writeRegister  (single and multiple)
+//   readMemory / writeMemory
+//   Discovery (broadcast + unicast)
+//   Heartbeat (1-second keep-alive)
+//   PacketResend (standard and extended 64-bit block ID)
+//   ForceIP (broadcast IP reassignment)
 // ============================================================
 
 #include "GigEProtocol.h"
@@ -16,6 +18,8 @@
 #include <QByteArray>
 #include <QString>
 #include <cstdint>
+#include <utility>
+#include <vector>
 
 struct GigECameraInfo {
     QHostAddress ipAddress;
@@ -34,44 +38,60 @@ public:
     explicit GigEDevice(QObject* parent = nullptr);
     ~GigEDevice() override;
 
-    // ── 열거 ─────────────────────────────────────────────────────────────────
-    // 네트워크에 있는 GigE Vision 카메라를 브로드캐스트로 탐색
-    // 브로드캐스트 탐색 (같은 서브넷, Switch L2)
+    // ── Discovery ─────────────────────────────────────────────────────────────
     static QList<GigECameraInfo> discover(int timeoutMs = 1000);
-
-    // 유니캐스트 탐색 (카메라 IP 직접 지정, Switch/VLAN 환경)
     static QList<GigECameraInfo> discoverUnicast(
         const QList<QHostAddress>& knownIps, int timeoutMs = 1000);
-
-    // discover() 내부 유니캐스트 전송용 알려진 IP 목록 (전역 설정)
     static void addKnownIp(const QHostAddress& ip);
     static void clearKnownIps();
 
-    // ── 연결 ─────────────────────────────────────────────────────────────────
+    // ── ForceIP (GV 2.2 §14.3.2) ─────────────────────────────────────────────
+    // Broadcast packet to reassign a camera's IP (camera identified by MAC).
+    // mac: 6-byte MAC address (big-endian byte order).
+    static bool forceIp(const uint8_t mac[6],
+                        const QHostAddress& newIp,
+                        const QHostAddress& subnet,
+                        const QHostAddress& gateway);
+
+    // ── Connection ────────────────────────────────────────────────────────────
     bool open(const QHostAddress& cameraIp);
     void close();
     bool isOpen() const { return m_open; }
 
-    // ── 레지스터 읽기/쓰기 (GVCP ReadReg / WriteReg) ─────────────────────────
+    // ── Single register access ────────────────────────────────────────────────
     bool readRegister (uint32_t address, uint32_t& value);
     bool writeRegister(uint32_t address, uint32_t  value);
 
-    // ── 메모리 읽기/쓰기 (GVCP ReadMem / WriteMem) ───────────────────────────
-    // 최대 GVCP_MAX_DATA_SIZE(512) bytes 단위로 자동 분할
+    // ── Multiple register access (GV 2.2 §14.3.4 / §14.3.5) ─────────────────
+    // Falls back to individual accesses if camera doesn't advertise capability.
+    bool readRegisters (const std::vector<uint32_t>& addrs,
+                        std::vector<uint32_t>& values);
+    bool writeRegisters(const std::vector<std::pair<uint32_t, uint32_t>>& regs);
+
+    // ── Memory access ─────────────────────────────────────────────────────────
     bool readMemory (uint32_t address, uint8_t* data, uint32_t size);
     bool writeMemory(uint32_t address, const uint8_t* data, uint32_t size);
 
-    // ── 스트림 설정 ───────────────────────────────────────────────────────────
+    // ── Stream configuration ──────────────────────────────────────────────────
     bool setStreamDestination(const QHostAddress& hostIp, uint16_t hostPort);
     bool setStreamPacketSize(uint16_t packetSize);
-    uint16_t negotiatePacketSize(uint16_t desired = 9000); // Jumbo frame
+    uint16_t negotiatePacketSize(uint16_t desired = 9000);
 
-    // ── GenApi XML 획득 ───────────────────────────────────────────────────────
-    // XML URL 레지스터에서 URL 읽기 → HTTP/local 스킴 처리
+    // ── Packet resend (GV 2.2 §14.3.7) ───────────────────────────────────────
+    // streamChannel: index of stream channel (usually 0).
+    // extendedId: true for 64-bit block IDs (GV 2.0+ ext mode).
+    bool sendPacketResend(uint16_t streamChannel,
+                          uint64_t blockId,
+                          uint32_t firstPacketId,
+                          uint32_t lastPacketId,
+                          bool extendedId = false);
+
+    // ── GenApi XML ────────────────────────────────────────────────────────────
     QByteArray loadGenApiXml();
 
     const GigECameraInfo& cameraInfo() const { return m_info; }
     QHostAddress ip() const { return m_cameraIp; }
+    uint32_t gvcpCapability() const { return m_gvcpCapability; }
 
 private slots:
     void onHeartbeat();
@@ -81,7 +101,8 @@ private:
                  uint16_t expectedAck, int timeoutMs = GVCP_TIMEOUT_MS);
     uint16_t nextReqId() { return ++m_reqId; }
 
-    // 바이트 순서 변환 (GVCP는 big-endian)
+    static const char* gvcpStatusString(uint16_t status);
+
     static uint16_t htons16(uint16_t v);
     static uint32_t htonl32(uint32_t v);
     static uint16_t ntohs16(uint16_t v);
@@ -93,5 +114,12 @@ private:
     GigECameraInfo m_info;
     uint16_t      m_reqId{0};
     bool          m_open{false};
-    bool          m_pendingAckSupported{false};
+
+    // Capability flags set from GVCP_CAPABILITY register on open()
+    uint32_t m_gvcpCapability{0};
+    bool     m_pendingAckSupported{false};
+    bool     m_readRegMultipleSupported{false};
+    bool     m_writeRegMultipleSupported{false};
+    bool     m_packetResendSupported{false};
+    bool     m_extStatusCodesSupported{false};
 };

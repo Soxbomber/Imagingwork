@@ -9,7 +9,7 @@
 #include <QDebug>
 #include <cstring>
 
-// ── 전역: 유니캐스트 탐색 대상 IP 목록 ──────────────────────────────────────
+// ── Known IPs for unicast discovery ──────────────────────────────────────────
 static QList<QHostAddress> s_knownIps;
 
 void GigEDevice::addKnownIp(const QHostAddress& ip)
@@ -23,9 +23,9 @@ void GigEDevice::clearKnownIps()
     s_knownIps.clear();
 }
 
-// ── 바이트 순서 변환 ─────────────────────────────────────────────────────────
+// ── Byte order helpers ────────────────────────────────────────────────────────
 uint16_t GigEDevice::htons16(uint16_t v) {
-    return ((v & 0xFF) << 8) | ((v >> 8) & 0xFF);
+    return uint16_t((v & 0xFF) << 8) | uint16_t(v >> 8);
 }
 uint32_t GigEDevice::htonl32(uint32_t v) {
     return ((v & 0xFF) << 24) | (((v >> 8) & 0xFF) << 16) |
@@ -34,7 +34,40 @@ uint32_t GigEDevice::htonl32(uint32_t v) {
 uint16_t GigEDevice::ntohs16(uint16_t v) { return htons16(v); }
 uint32_t GigEDevice::ntohl32(uint32_t v) { return htonl32(v); }
 
-// ── 생성자 / 소멸자 ───────────────────────────────────────────────────────────
+// ── GVCP status → human-readable string ──────────────────────────────────────
+const char* GigEDevice::gvcpStatusString(uint16_t status)
+{
+    switch (status) {
+    case GVCP_STATUS_SUCCESS:                          return "SUCCESS";
+    case GVCP_STATUS_PACKET_RESEND:                    return "PACKET_RESEND";
+    case GVCP_STATUS_NOT_IMPLEMENTED:                  return "NOT_IMPLEMENTED";
+    case GVCP_STATUS_INVALID_PARAMETER:                return "INVALID_PARAMETER";
+    case GVCP_STATUS_INVALID_ADDRESS:                  return "INVALID_ADDRESS";
+    case GVCP_STATUS_WRITE_PROTECT:                    return "WRITE_PROTECT";
+    case GVCP_STATUS_BAD_ALIGNMENT:                    return "BAD_ALIGNMENT";
+    case GVCP_STATUS_ACCESS_DENIED:                    return "ACCESS_DENIED";
+    case GVCP_STATUS_BUSY:                             return "BUSY";
+    case GVCP_STATUS_LOCAL_PROBLEM:                    return "LOCAL_PROBLEM";
+    case GVCP_STATUS_MSG_MISMATCH:                     return "MSG_MISMATCH";
+    case GVCP_STATUS_INVALID_PROTOCOL:                 return "INVALID_PROTOCOL";
+    case GVCP_STATUS_NO_MSG:                           return "NO_MSG";
+    case GVCP_STATUS_PACKET_UNAVAILABLE:               return "PACKET_UNAVAILABLE";
+    case GVCP_STATUS_DATA_OVERRUN:                     return "DATA_OVERRUN";
+    case GVCP_STATUS_INVALID_HEADER:                   return "INVALID_HEADER";
+    case GVCP_STATUS_WRONG_CONFIG:                     return "WRONG_CONFIG";
+    case GVCP_STATUS_PACKET_NOT_YET_AVAILABLE:         return "PACKET_NOT_YET_AVAILABLE";
+    case GVCP_STATUS_PACKET_AND_PREV_REMOVED_FROM_MEM: return "PACKET_AND_PREV_REMOVED_FROM_MEM";
+    case GVCP_STATUS_PACKET_REMOVED_FROM_MEM:          return "PACKET_REMOVED_FROM_MEM";
+    case GVCP_STATUS_NO_REF_TIME:                      return "NO_REF_TIME";
+    case GVCP_STATUS_PACKET_TEMPORARILY_UNAVAILABLE:   return "PACKET_TEMPORARILY_UNAVAILABLE";
+    case GVCP_STATUS_OVERFLOW:                         return "OVERFLOW";
+    case GVCP_STATUS_ACTION_LATE:                      return "ACTION_LATE";
+    case GVCP_STATUS_ERROR:                            return "ERROR";
+    default:                                           return "UNKNOWN";
+    }
+}
+
+// ── Constructor / Destructor ──────────────────────────────────────────────────
 GigEDevice::GigEDevice(QObject* parent)
     : QObject(parent)
 {
@@ -47,16 +80,12 @@ GigEDevice::~GigEDevice()
     close();
 }
 
-// ── Discovery (Aravis 방식 직접 포팅) ────────────────────────────────────────
-// ── discover() ───────────────────────────────────────────────────────────────
-// 브로드캐스트 + 서브넷 지향 브로드캐스트로 카메라 탐색
-// Switch hub 환경: addKnownIp()로 카메라 IP 등록 시 유니캐스트 병행
+// ── discover: broadcast + subnet-directed broadcast ───────────────────────────
 QList<GigECameraInfo> GigEDevice::discover(int timeoutMs)
 {
     QList<GigECameraInfo> result;
     QMap<QString, bool>   seen;
 
-    // ── Discovery CMD 패킷 ───────────────────────────────────────────────────
     QByteArray pkt(sizeof(GvcpCmdHeader), 0);
     {
         auto* h     = reinterpret_cast<GvcpCmdHeader*>(pkt.data());
@@ -67,7 +96,6 @@ QList<GigECameraInfo> GigEDevice::discover(int timeoutMs)
         h->req_id   = htons16(1);
     }
 
-    // ── 단일 소켓 바인딩 ─────────────────────────────────────────────────────
     QUdpSocket sock;
     if (!sock.bind(QHostAddress(QHostAddress::AnyIPv4), 0,
                    QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
@@ -75,9 +103,7 @@ QList<GigECameraInfo> GigEDevice::discover(int timeoutMs)
                  qPrintable(sock.errorString()));
         return result;
     }
-    qDebug("GigEDevice::discover: socket bound port=%u", sock.localPort());
 
-    // ── 전송 대상 수집 ───────────────────────────────────────────────────────
     QSet<quint32> sentSet;
     auto sendTo = [&](const QHostAddress& dst) {
         quint32 a = dst.toIPv4Address();
@@ -86,10 +112,8 @@ QList<GigECameraInfo> GigEDevice::discover(int timeoutMs)
         sock.writeDatagram(pkt, dst, GVCP_PORT);
     };
 
-    // 1. 제한 브로드캐스트
     sendTo(QHostAddress("255.255.255.255"));
 
-    // 2. 인터페이스별 서브넷 지향 브로드캐스트
     for (const QNetworkInterface& iface : QNetworkInterface::allInterfaces()) {
         if (!(iface.flags() & QNetworkInterface::IsUp))      continue;
         if (!(iface.flags() & QNetworkInterface::IsRunning)) continue;
@@ -101,9 +125,12 @@ QList<GigECameraInfo> GigEDevice::discover(int timeoutMs)
         }
     }
 
+    // also send unicast to known IPs
+    for (const QHostAddress& ip : s_knownIps)
+        sendTo(ip);
+
     qDebug("GigEDevice::discover: sent to %d targets", (int)sentSet.size());
 
-    // ── ACK 수신 ─────────────────────────────────────────────────────────────
     const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + timeoutMs;
     while (QDateTime::currentMSecsSinceEpoch() < deadline) {
         if (!sock.waitForReadyRead(50)) continue;
@@ -113,9 +140,6 @@ QList<GigECameraInfo> GigEDevice::discover(int timeoutMs)
             QByteArray ack(static_cast<int>(psz), 0);
             QHostAddress sender; quint16 sport{};
             sock.readDatagram(ack.data(), ack.size(), &sender, &sport);
-
-            qDebug("GigEDevice::discover: recv %d bytes from %s:%u",
-                   ack.size(), qPrintable(sender.toString()), sport);
 
             if (ack.size() < int(sizeof(GvcpAckHeader) + GVBS_DISCOVERY_DATA_SIZE))
                 continue;
@@ -167,32 +191,27 @@ QList<GigECameraInfo> GigEDevice::discover(int timeoutMs)
     }
 
     sock.close();
-    qDebug("GigEDevice::discover: total %d camera(s) found", result.size());
+    qDebug("GigEDevice::discover: total %d camera(s)", result.size());
     return result;
 }
 
-
-// ── discoverUnicast: 카메라 IP 직접 지정 (Switch/VLAN 환경) ──────────────────
-// 브로드캐스트가 차단된 Switch hub 환경에서 카메라 IP를 직접 알고 있을 때 사용
-// GigE Vision 스펙: Discovery CMD를 유니캐스트로 전송해도 유효
+// ── discoverUnicast ───────────────────────────────────────────────────────────
 QList<GigECameraInfo> GigEDevice::discoverUnicast(
     const QList<QHostAddress>& knownIps, int timeoutMs)
 {
     QList<GigECameraInfo> result;
     if (knownIps.isEmpty()) return result;
 
-    // Discovery CMD (ALLOW_BROADCAST_ACK 없음 = 유니캐스트 ACK)
     QByteArray pkt(sizeof(GvcpCmdHeader), 0);
     {
         auto* h     = reinterpret_cast<GvcpCmdHeader*>(pkt.data());
         h->key_code = GVCP_PACKET_TYPE_CMD;
-        h->flags    = GVCP_CMD_FLAG_NONE;   // 브로드캐스트 ACK 불필요
+        h->flags    = GVCP_CMD_FLAG_NONE;
         h->command  = htons16(GVCP_CMD_DISCOVERY);
         h->length   = htons16(0);
         h->req_id   = htons16(1);
     }
 
-    // 인터페이스별 소켓 생성 (각 인터페이스에서 해당 서브넷 카메라 접근)
     struct IfSock {
         QUdpSocket   sock;
         QHostAddress ifaceIp;
@@ -215,36 +234,22 @@ QList<GigECameraInfo> GigEDevice::discoverUnicast(
                 sockets.push_back(std::move(s));
         }
     }
-
     if (sockets.empty()) return result;
 
-    // 각 카메라 IP에 대해 해당 서브넷 소켓으로 유니캐스트 전송
     for (const QHostAddress& camIp : knownIps) {
         const quint32 camAddr = camIp.toIPv4Address();
         bool sent = false;
         for (auto& s : sockets) {
-            const quint32 ifAddr  = s->ifaceIp.toIPv4Address();
-            // 같은 서브넷이면 해당 인터페이스 소켓으로 전송
-            if ((camAddr & s->netmask) == (ifAddr & s->netmask)) {
-                qint64 n = s->sock.writeDatagram(pkt, camIp, GVCP_PORT);
-                qDebug("GigEDevice::discoverUnicast: [%s] -> %s:%u (%lld bytes)",
-                       qPrintable(s->ifaceIp.toString()),
-                       qPrintable(camIp.toString()), GVCP_PORT, (long long)n);
-                sent = true;
-                break;
+            if ((camAddr & s->netmask) ==
+                (s->ifaceIp.toIPv4Address() & s->netmask)) {
+                s->sock.writeDatagram(pkt, camIp, GVCP_PORT);
+                sent = true; break;
             }
         }
-        if (!sent) {
-            // 서브넷 일치 소켓 없음 → 첫 번째 소켓으로 시도
-            if (!sockets.empty()) {
-                sockets[0]->sock.writeDatagram(pkt, camIp, GVCP_PORT);
-                qDebug("GigEDevice::discoverUnicast: (fallback) -> %s",
-                       qPrintable(camIp.toString()));
-            }
-        }
+        if (!sent)
+            sockets[0]->sock.writeDatagram(pkt, camIp, GVCP_PORT);
     }
 
-    // ACK 수집
     QMap<QString, bool> seen;
     const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + timeoutMs;
     while (QDateTime::currentMSecsSinceEpoch() < deadline) {
@@ -257,9 +262,6 @@ QList<GigECameraInfo> GigEDevice::discoverUnicast(
                 QHostAddress sender; quint16 sport{};
                 s->sock.readDatagram(ack.data(), ack.size(), &sender, &sport);
 
-                qDebug("GigEDevice::discoverUnicast: recv %d bytes from %s",
-                       ack.size(), qPrintable(sender.toString()));
-
                 if (ack.size() < int(sizeof(GvcpAckHeader) + GVBS_DISCOVERY_DATA_SIZE))
                     continue;
                 const auto* ah = reinterpret_cast<const GvcpAckHeader*>(ack.constData());
@@ -268,8 +270,6 @@ QList<GigECameraInfo> GigEDevice::discoverUnicast(
 
                 const uint8_t* data = reinterpret_cast<const uint8_t*>(
                     ack.constData() + sizeof(GvcpAckHeader));
-
-                // MAC
                 const uint32_t macH = ntohl32(*reinterpret_cast<const uint32_t*>(
                     data + GVBS_DEVICE_MAC_HIGH_OFFSET));
                 const uint32_t macL = ntohl32(*reinterpret_cast<const uint32_t*>(
@@ -314,6 +314,52 @@ QList<GigECameraInfo> GigEDevice::discoverUnicast(
     return result;
 }
 
+// ── forceIp (GV 2.2 §14.3.2) ─────────────────────────────────────────────────
+bool GigEDevice::forceIp(const uint8_t mac[6],
+                          const QHostAddress& newIp,
+                          const QHostAddress& subnet,
+                          const QHostAddress& gateway)
+{
+    QByteArray pkt(int(sizeof(GvcpForceIpCmd)), 0);
+    auto* c = reinterpret_cast<GvcpForceIpCmd*>(pkt.data());
+    c->header.key_code     = GVCP_PACKET_TYPE_CMD;
+    c->header.flags        = GVCP_CMD_FLAG_ACK_REQUIRED;
+    c->header.command      = htons16(GVCP_CMD_FORCEIP);
+    c->header.length       = htons16(uint16_t(sizeof(GvcpForceIpCmd) - sizeof(GvcpCmdHeader)));
+    c->header.req_id       = htons16(1);
+    c->reserved0           = 0;
+    std::memcpy(c->mac, mac, 6);
+    c->reserved1           = 0;
+    c->static_ip           = htonl32(newIp.toIPv4Address());
+    c->reserved2           = 0;
+    c->static_subnet       = htonl32(subnet.toIPv4Address());
+    c->reserved3           = 0;
+    c->static_gw           = htonl32(gateway.toIPv4Address());
+
+    QUdpSocket sock;
+    if (!sock.bind(QHostAddress(QHostAddress::AnyIPv4), 0,
+                   QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint))
+        return false;
+
+    sock.writeDatagram(pkt, QHostAddress("255.255.255.255"), GVCP_PORT);
+
+    // ACK is optional for ForceIP — wait briefly
+    QByteArray ack;
+    if (sock.waitForReadyRead(500) && sock.hasPendingDatagrams()) {
+        ack.resize(int(sock.pendingDatagramSize()));
+        sock.readDatagram(ack.data(), ack.size());
+        if (ack.size() >= int(sizeof(GvcpAckHeader))) {
+            const auto* ah = reinterpret_cast<const GvcpAckHeader*>(ack.constData());
+            qDebug("GigEDevice::forceIp: ACK status=0x%04X (%s)",
+                   ntohs16(ah->status), gvcpStatusString(ntohs16(ah->status)));
+        }
+    }
+
+    qDebug("GigEDevice::forceIp: sent to %s → %s",
+           newIp.toString().toUtf8().constData(),
+           newIp.toString().toUtf8().constData());
+    return true;
+}
 
 // ── open ──────────────────────────────────────────────────────────────────────
 bool GigEDevice::open(const QHostAddress& cameraIp)
@@ -326,55 +372,56 @@ bool GigEDevice::open(const QHostAddress& cameraIp)
                  qPrintable(m_socket.errorString()));
         return false;
     }
-    qDebug("GigEDevice::open: socket bound port=%u target=%s",
-           m_socket.localPort(), qPrintable(cameraIp.toString()));
 
-    // ── 통신 테스트: Version 레지스터 읽기 (CCP 없이 가능) ───────────────────
+    // Verify communication via Version register (no CCP required)
     uint32_t version{};
     if (!readRegister(GVBS_VERSION_OFFSET, version)) {
-        qWarning("GigEDevice::open: cannot read Version register "
-                 "→ GVCP communication failed (check firewall/route/IP)");
+        qWarning("GigEDevice::open: GVCP communication failed "
+                 "(check firewall/route/IP)");
         m_socket.close();
         return false;
     }
     qDebug("GigEDevice::open: GigE Vision version %u.%u",
            (version >> 16) & 0xFFFF, version & 0xFFFF);
 
-    // ── CCP 현재 값 확인 ──────────────────────────────────────────────────────
+    // Read GVCP capability register and cache all flags
+    if (readRegister(GVBS_GVCP_CAPABILITY_OFFSET, m_gvcpCapability)) {
+        m_pendingAckSupported      = (m_gvcpCapability & GVBS_GVCP_CAP_PENDING_ACK)       != 0;
+        m_readRegMultipleSupported = (m_gvcpCapability & GVBS_GVCP_CAP_READREG_MULTIPLE)  != 0;
+        m_writeRegMultipleSupported= (m_gvcpCapability & GVBS_GVCP_CAP_WRITEREG_MULTIPLE) != 0;
+        m_packetResendSupported    = (m_gvcpCapability & GVBS_GVCP_CAP_PACKET_RESEND)     != 0;
+        m_extStatusCodesSupported  = (m_gvcpCapability & GVBS_GVCP_CAP_EXT_STATUS_CODES)  != 0;
+        qDebug("GigEDevice::open: capability=0x%08X "
+               "(pendingAck=%d readMult=%d writeMult=%d resend=%d)",
+               m_gvcpCapability,
+               m_pendingAckSupported, m_readRegMultipleSupported,
+               m_writeRegMultipleSupported, m_packetResendSupported);
+    }
+
+    // Acquire CCP (Control Channel Privilege)
     uint32_t currentCcp{};
     readRegister(GVBS_CCP_OFFSET, currentCcp);
-    qDebug("GigEDevice::open: current CCP = 0x%08X", currentCcp);
 
-    // ── CCP 획득 ─────────────────────────────────────────────────────────────
-    // GigE Vision Spec / Aravis:
-    //   0x00000002 = Control access (Aravis 기본, ARV_GVBS_CONTROL_CHANNEL_PRIVILEGE_CONTROL)
-    //   0x00000001 = Exclusive access
     bool ccpOk = writeRegister(GVBS_CCP_OFFSET, GVBS_CCP_CONTROL_ACCESS);
     if (!ccpOk) {
         qDebug("GigEDevice::open: Control access failed, trying Exclusive");
         ccpOk = writeRegister(GVBS_CCP_OFFSET, GVBS_CCP_EXCLUSIVE_ACCESS);
     }
     if (!ccpOk && currentCcp != 0) {
-        qWarning("GigEDevice::open: CCP busy (0x%08X), waiting 3.5s...",
-                 currentCcp);
+        qWarning("GigEDevice::open: CCP busy (0x%08X), waiting 3.5s...", currentCcp);
         QThread::msleep(3500);
         ccpOk = writeRegister(GVBS_CCP_OFFSET, GVBS_CCP_CONTROL_ACCESS);
     }
     if (!ccpOk) {
-        qWarning("GigEDevice::open: CCP acquisition failed. "
-                 "Ensure no other GigE app is open, or power-cycle the camera.");
+        qWarning("GigEDevice::open: CCP acquisition failed");
         m_socket.close();
         return false;
     }
-    uint32_t gotCcp{};
-    readRegister(GVBS_CCP_OFFSET, gotCcp);
-    qDebug("GigEDevice::open: CCP acquired = 0x%08X", gotCcp);
 
-    // ── 카메라 정보 읽기 ──────────────────────────────────────────────────────
-    uint32_t capVal{};
-    if (readRegister(GVBS_GVCP_CAPABILITY_OFFSET, capVal))
-        m_pendingAckSupported = (capVal & GVBS_GVCP_CAP_PENDING_ACK) != 0;
+    // If camera supports heartbeat disable via GVCP_CONFIGURATION, keep heartbeat enabled
+    // (our software sends regular CCP reads as keep-alive, which is compliant)
 
+    // Read camera identity fields
     QByteArray mfr(GVBS_MANUFACTURER_NAME_SIZE + 1, 0);
     if (readMemory(GVBS_MANUFACTURER_NAME_OFFSET,
                    reinterpret_cast<uint8_t*>(mfr.data()),
@@ -402,22 +449,18 @@ bool GigEDevice::open(const QHostAddress& cameraIp)
     return true;
 }
 
-
 // ── close ─────────────────────────────────────────────────────────────────────
 void GigEDevice::close()
 {
     if (!m_open) return;
     m_heartbeatTimer.stop();
-
-    // CCP 해제 (다른 호스트가 접속 가능하도록)
     writeRegister(GVBS_CCP_OFFSET, 0x00000000);
-
     m_socket.close();
     m_open = false;
     qDebug("GigEDevice::close: disconnected");
 }
 
-// ── sendCmd: GVCP 명령 송수신 (재전송 포함) ──────────────────────────────────
+// ── sendCmd: transmit GVCP command and receive ACK with retry ─────────────────
 bool GigEDevice::sendCmd(const QByteArray& cmd, QByteArray& ack,
                           uint16_t expectedAck, int timeoutMs)
 {
@@ -439,31 +482,35 @@ bool GigEDevice::sendCmd(const QByteArray& cmd, QByteArray& ack,
                 const auto* ah =
                     reinterpret_cast<const GvcpAckHeader*>(buf.constData());
 
-                // Pending ACK: 카메라가 처리 중 → 타임아웃 연장
-                if (ntohs16(ah->command) == GVCP_ACK_PENDING) {
-                    const auto* pa =
-                        reinterpret_cast<const GvcpPendingAck*>(buf.constData());
-                    remain += ntohs16(pa->timeout_ms);
+                const uint16_t ackCmd = ntohs16(ah->command);
+
+                // Pending ACK: camera is still processing, extend timeout
+                if (ackCmd == GVCP_ACK_PENDING) {
+                    if (buf.size() >= int(sizeof(GvcpPendingAck))) {
+                        const auto* pa =
+                            reinterpret_cast<const GvcpPendingAck*>(buf.constData());
+                        remain += ntohs16(pa->timeout_ms);
+                        qDebug("GigEDevice::sendCmd: PENDING_ACK, extending by %u ms",
+                               ntohs16(pa->timeout_ms));
+                    }
                     continue;
                 }
 
-                if (ntohs16(ah->command) != expectedAck) continue;
+                if (ackCmd != expectedAck) continue;
 
-                // req_id 확인 (0은 일부 카메라의 broadcast ACK)
+                // Validate req_id (0 = broadcast ACK from some cameras)
                 const auto* ch =
                     reinterpret_cast<const GvcpCmdHeader*>(cmd.constData());
                 const uint16_t ackId = ntohs16(ah->req_id);
                 const uint16_t cmdId = ntohs16(ch->req_id);
                 if (ackId != 0 && ackId != cmdId) continue;
 
-                // ACK status 확인: 0x0000 = SUCCESS
-                const uint16_t ackStatus = ntohs16(ah->status);
-                if (ackStatus != GVCP_STATUS_SUCCESS) {
-                    qWarning("GigEDevice::sendCmd: ACK status error "
-                             "cmd=0x%04X status=0x%04X",
-                             ntohs16(ah->command), ackStatus);
-                    // 에러 ACK도 수신으로 처리 (상위 레이어에서 판단)
-                    // CCP ACCESS_DENIED 같은 경우 false 반환이 맞으므로 여기서 false
+                // Check status
+                const uint16_t st = ntohs16(ah->status);
+                if (st != GVCP_STATUS_SUCCESS) {
+                    qWarning("GigEDevice::sendCmd: ACK error "
+                             "cmd=0x%04X status=0x%04X (%s)",
+                             ackCmd, st, gvcpStatusString(st));
                     return false;
                 }
 
@@ -479,23 +526,19 @@ bool GigEDevice::sendCmd(const QByteArray& cmd, QByteArray& ack,
 bool GigEDevice::readRegister(uint32_t address, uint32_t& value)
 {
     QByteArray pkt(sizeof(GvcpReadRegCmd), 0);
-    auto* c    = reinterpret_cast<GvcpReadRegCmd*>(pkt.data());
-    c->header.key_code     = GVCP_PACKET_TYPE_CMD;
-    c->header.flags        = GVCP_CMD_FLAG_ACK_REQUIRED;
-    c->header.command      = htons16(GVCP_CMD_READ_REGISTER);
-    c->header.length       = htons16(4);
-    c->header.req_id       = htons16(nextReqId());
-    c->address             = htonl32(address);
+    auto* c = reinterpret_cast<GvcpReadRegCmd*>(pkt.data());
+    c->header.key_code = GVCP_PACKET_TYPE_CMD;
+    c->header.flags    = GVCP_CMD_FLAG_ACK_REQUIRED;
+    c->header.command  = htons16(GVCP_CMD_READ_REGISTER);
+    c->header.length   = htons16(4);
+    c->header.req_id   = htons16(nextReqId());
+    c->address         = htonl32(address);
 
     QByteArray ack;
     if (!sendCmd(pkt, ack, GVCP_ACK_READ_REGISTER)) return false;
     if (ack.size() < int(sizeof(GvcpReadRegAck))) return false;
 
     const auto* a = reinterpret_cast<const GvcpReadRegAck*>(ack.constData());
-    if (ntohs16(a->header.req_id) == 0 &&
-        ntohs16(a->header.command) != GVCP_ACK_READ_REGISTER)
-        return false;
-
     value = ntohl32(a->value);
     return true;
 }
@@ -504,14 +547,93 @@ bool GigEDevice::readRegister(uint32_t address, uint32_t& value)
 bool GigEDevice::writeRegister(uint32_t address, uint32_t value)
 {
     QByteArray pkt(sizeof(GvcpWriteRegCmd), 0);
-    auto* c    = reinterpret_cast<GvcpWriteRegCmd*>(pkt.data());
-    c->header.key_code     = GVCP_PACKET_TYPE_CMD;
-    c->header.flags        = GVCP_CMD_FLAG_ACK_REQUIRED;
-    c->header.command      = htons16(GVCP_CMD_WRITE_REGISTER);
-    c->header.length       = htons16(8);
-    c->header.req_id       = htons16(nextReqId());
-    c->address             = htonl32(address);
-    c->value               = htonl32(value);
+    auto* c = reinterpret_cast<GvcpWriteRegCmd*>(pkt.data());
+    c->header.key_code = GVCP_PACKET_TYPE_CMD;
+    c->header.flags    = GVCP_CMD_FLAG_ACK_REQUIRED;
+    c->header.command  = htons16(GVCP_CMD_WRITE_REGISTER);
+    c->header.length   = htons16(8);
+    c->header.req_id   = htons16(nextReqId());
+    c->address         = htonl32(address);
+    c->value           = htonl32(value);
+
+    QByteArray ack;
+    return sendCmd(pkt, ack, GVCP_ACK_WRITE_REGISTER);
+}
+
+// ── readRegisters: multiple registers in one packet (GV 2.2 §14.3.4) ─────────
+bool GigEDevice::readRegisters(const std::vector<uint32_t>& addrs,
+                                std::vector<uint32_t>& values)
+{
+    if (addrs.empty()) return true;
+
+    // Fall back to single-register reads if camera doesn't support multiple
+    if (!m_readRegMultipleSupported || addrs.size() == 1) {
+        values.resize(addrs.size());
+        for (size_t i = 0; i < addrs.size(); ++i)
+            if (!readRegister(addrs[i], values[i])) return false;
+        return true;
+    }
+
+    const uint16_t payloadLen = uint16_t(addrs.size() * 4);
+    QByteArray pkt(int(sizeof(GvcpCmdHeader)) + payloadLen, 0);
+    auto* h = reinterpret_cast<GvcpCmdHeader*>(pkt.data());
+    h->key_code = GVCP_PACKET_TYPE_CMD;
+    h->flags    = GVCP_CMD_FLAG_ACK_REQUIRED;
+    h->command  = htons16(GVCP_CMD_READ_REGISTER);
+    h->length   = htons16(payloadLen);
+    h->req_id   = htons16(nextReqId());
+
+    uint8_t* p = reinterpret_cast<uint8_t*>(pkt.data()) + sizeof(GvcpCmdHeader);
+    for (uint32_t addr : addrs) {
+        *reinterpret_cast<uint32_t*>(p) = htonl32(addr);
+        p += 4;
+    }
+
+    QByteArray ack;
+    if (!sendCmd(pkt, ack, GVCP_ACK_READ_REGISTER)) return false;
+
+    const int minAckSize = int(sizeof(GvcpAckHeader)) + int(addrs.size() * 4);
+    if (ack.size() < minAckSize) return false;
+
+    values.resize(addrs.size());
+    const uint8_t* ap =
+        reinterpret_cast<const uint8_t*>(ack.constData()) + sizeof(GvcpAckHeader);
+    for (size_t i = 0; i < addrs.size(); ++i) {
+        values[i] = ntohl32(*reinterpret_cast<const uint32_t*>(ap));
+        ap += 4;
+    }
+    return true;
+}
+
+// ── writeRegisters: multiple registers in one packet (GV 2.2 §14.3.5) ────────
+bool GigEDevice::writeRegisters(
+    const std::vector<std::pair<uint32_t, uint32_t>>& regs)
+{
+    if (regs.empty()) return true;
+
+    // Fall back to single writes if camera doesn't support multiple
+    if (!m_writeRegMultipleSupported || regs.size() == 1)
+    {
+        for (auto& [addr, val] : regs)
+            if (!writeRegister(addr, val)) return false;
+        return true;
+    }
+
+    const uint16_t payloadLen = uint16_t(regs.size() * 8);
+    QByteArray pkt(int(sizeof(GvcpCmdHeader)) + payloadLen, 0);
+    auto* h = reinterpret_cast<GvcpCmdHeader*>(pkt.data());
+    h->key_code = GVCP_PACKET_TYPE_CMD;
+    h->flags    = GVCP_CMD_FLAG_ACK_REQUIRED;
+    h->command  = htons16(GVCP_CMD_WRITE_REGISTER);
+    h->length   = htons16(payloadLen);
+    h->req_id   = htons16(nextReqId());
+
+    uint8_t* p = reinterpret_cast<uint8_t*>(pkt.data()) + sizeof(GvcpCmdHeader);
+    for (auto& [addr, val] : regs) {
+        *reinterpret_cast<uint32_t*>(p)   = htonl32(addr);
+        *reinterpret_cast<uint32_t*>(p+4) = htonl32(val);
+        p += 8;
+    }
 
     QByteArray ack;
     return sendCmd(pkt, ack, GVCP_ACK_WRITE_REGISTER);
@@ -526,15 +648,15 @@ bool GigEDevice::readMemory(uint32_t address, uint8_t* data, uint32_t size)
                                         static_cast<uint32_t>(GVCP_MAX_DATA_SIZE));
 
         QByteArray pkt(sizeof(GvcpReadMemCmd), 0);
-        auto* c    = reinterpret_cast<GvcpReadMemCmd*>(pkt.data());
-        c->header.key_code     = GVCP_PACKET_TYPE_CMD;
-        c->header.flags        = GVCP_CMD_FLAG_ACK_REQUIRED;
-        c->header.command      = htons16(GVCP_CMD_READ_MEMORY);
-        c->header.length       = htons16(8);
-        c->header.req_id       = htons16(nextReqId());
-        c->address             = htonl32(address + offset);
-        c->reserved            = 0;
-        c->count               = htons16(static_cast<uint16_t>(chunk));
+        auto* c = reinterpret_cast<GvcpReadMemCmd*>(pkt.data());
+        c->header.key_code = GVCP_PACKET_TYPE_CMD;
+        c->header.flags    = GVCP_CMD_FLAG_ACK_REQUIRED;
+        c->header.command  = htons16(GVCP_CMD_READ_MEMORY);
+        c->header.length   = htons16(8);
+        c->header.req_id   = htons16(nextReqId());
+        c->address         = htonl32(address + offset);
+        c->reserved        = 0;
+        c->count           = htons16(static_cast<uint16_t>(chunk));
 
         QByteArray ack;
         if (!sendCmd(pkt, ack, GVCP_ACK_READ_MEMORY)) return false;
@@ -542,16 +664,14 @@ bool GigEDevice::readMemory(uint32_t address, uint8_t* data, uint32_t size)
         const int dataOffset = int(sizeof(GvcpReadMemAck));
         if (ack.size() < dataOffset + int(chunk)) return false;
 
-        std::memcpy(data + offset,
-                    ack.constData() + dataOffset, chunk);
+        std::memcpy(data + offset, ack.constData() + dataOffset, chunk);
         offset += chunk;
     }
     return true;
 }
 
 // ── writeMemory ───────────────────────────────────────────────────────────────
-bool GigEDevice::writeMemory(uint32_t address, const uint8_t* data,
-                               uint32_t size)
+bool GigEDevice::writeMemory(uint32_t address, const uint8_t* data, uint32_t size)
 {
     uint32_t offset = 0;
     while (offset < size) {
@@ -560,14 +680,13 @@ bool GigEDevice::writeMemory(uint32_t address, const uint8_t* data,
 
         QByteArray pkt(int(sizeof(GvcpWriteMemCmd)) + int(chunk), 0);
         auto* c = reinterpret_cast<GvcpWriteMemCmd*>(pkt.data());
-        c->header.key_code     = GVCP_PACKET_TYPE_CMD;
-        c->header.flags        = GVCP_CMD_FLAG_ACK_REQUIRED;
-        c->header.command      = htons16(GVCP_CMD_WRITE_MEMORY);
-        c->header.length       = htons16(static_cast<uint16_t>(4 + chunk));
-        c->header.req_id       = htons16(nextReqId());
-        c->address             = htonl32(address + offset);
-        std::memcpy(pkt.data() + sizeof(GvcpWriteMemCmd),
-                    data + offset, chunk);
+        c->header.key_code = GVCP_PACKET_TYPE_CMD;
+        c->header.flags    = GVCP_CMD_FLAG_ACK_REQUIRED;
+        c->header.command  = htons16(GVCP_CMD_WRITE_MEMORY);
+        c->header.length   = htons16(static_cast<uint16_t>(4 + chunk));
+        c->header.req_id   = htons16(nextReqId());
+        c->address         = htonl32(address + offset);
+        std::memcpy(pkt.data() + sizeof(GvcpWriteMemCmd), data + offset, chunk);
 
         QByteArray ack;
         if (!sendCmd(pkt, ack, GVCP_ACK_WRITE_MEMORY)) return false;
@@ -580,55 +699,30 @@ bool GigEDevice::writeMemory(uint32_t address, const uint8_t* data,
 bool GigEDevice::setStreamDestination(const QHostAddress& hostIp,
                                        uint16_t hostPort)
 {
-    // GigE Vision 스펙 + IDS Peak 분석 (peak_log.pcapng):
-    //
-    //   SCDA0 쓰기 제약: SCP0(port) = 0인 상태에서만 SCDA0 변경 허용
-    //   → SCP0에 포트가 설정된 상태(스트림 활성 중)이면 ACCESS_DENIED(0x8006)
-    //
-    //   올바른 순서:
-    //     1. SCP0 = 0 (포트 클리어 → 스트림 채널 비활성화)
-    //     2. SCDA0 = hostIp (목적지 IP)
-    //     3. SCP0 = hostPort (포트 설정 → 스트림 채널 활성화)
-    //
-    //   IDS Peak 패킷 순서:
-    //     pkt 976:  READREG SCP0 = 0x00000000 (이미 0 확인)
-    //     pkt 1319: WRITEREG SCDA0 = 0xC0A82301 → Success
-    //     pkt 1325: WRITEREG SCP0  = 0x0000E04F → Success
-
+    // GV 2.2 §16.3 — SCDA may only be written when SCP destination port = 0
     qDebug("GigEDevice::setStreamDestination: ip=%s port=%u",
            qPrintable(hostIp.toString()), hostPort);
 
-    // 1. SCP0 = 0 (SCDA0 쓰기 잠금 해제)
-    writeRegister(GVBS_SC0_PORT_OFFSET, 0);
+    writeRegister(GVBS_SC0_PORT_OFFSET, 0);  // clear port first
 
-    // 2. SCDA0 = host IP
     if (!writeRegister(GVBS_SC0_IP_ADDRESS_OFFSET, hostIp.toIPv4Address())) {
-        qWarning("GigEDevice::setStreamDestination: SCDA0 write failed");
+        qWarning("GigEDevice::setStreamDestination: SCDA write failed");
         return false;
     }
-
-    // 3. SCP0 = port (하위 16bit, IDS Peak 방식)
     if (!writeRegister(GVBS_SC0_PORT_OFFSET, static_cast<uint32_t>(hostPort))) {
-        qWarning("GigEDevice::setStreamDestination: SCP0 write failed");
+        qWarning("GigEDevice::setStreamDestination: SCP port write failed");
         return false;
     }
 
-    qDebug("GigEDevice::setStreamDestination: OK (port=%u)", hostPort);
+    qDebug("GigEDevice::setStreamDestination: OK");
     return true;
 }
 
 // ── setStreamPacketSize ───────────────────────────────────────────────────────
 bool GigEDevice::setStreamPacketSize(uint16_t packetSize)
 {
-    // IDS Peak pcapng 분석 결과:
-    //   SCPS0 = 0x40002324
-    //     bit15~0:  0x2324 = 9012 (PacketSize) → 하위 16bit
-    //     bit14:    1 = DoNotFragment
-    //
-    // 우리 이전 코드: packetSize << 16 → 카메라가 PacketSize=0 인식
-    //
-    // 최종값: DoNotFragment(bit14=0x4000) | packetSize
-    const uint32_t flags = 0x4000;  // bit14 = DoNotFragment
+    // SCPS: bit 14 = DoNotFragment, bits 15:0 = packet size
+    const uint32_t flags = 0x4000u;
     return writeRegister(GVBS_SC0_PACKET_SIZE_OFFSET,
                          flags | static_cast<uint32_t>(packetSize));
 }
@@ -636,71 +730,94 @@ bool GigEDevice::setStreamPacketSize(uint16_t packetSize)
 // ── negotiatePacketSize ───────────────────────────────────────────────────────
 uint16_t GigEDevice::negotiatePacketSize(uint16_t desired)
 {
-    // IDS Peak 패킷 크기 협상 과정 (peak_log.pcapng):
-    //   1. SCPS0 = 0x00004000 (PacketSize=0, DoNotFragment) 써서 테스트 패킷 요청
-    //   2. SCPS0 읽기 → 카메라가 지원 가능한 최대값으로 조정 (0x2324 = 9012)
-    //   3. SCPS0 = 0xC0002324 (협상 비트 | 9012)
-    //   4. SCPS0 = 0x40002324 (최종 확정)
-    //
-    // Switch hub 환경이므로 1472로 고정
-    // (NIC Jumbo=9014이지만 Switch가 지원 안 할 수 있음)
+    // Use a conservative default that works through most switches.
+    // Jumbo frames (9000) require switch support for 9000-byte MTU.
+    (void)desired;
     const uint16_t safe = 1472;
     qDebug("GigEDevice::negotiatePacketSize: setting %u", safe);
     setStreamPacketSize(safe);
     return safe;
 }
 
+// ── sendPacketResend (GV 2.2 §14.3.7) ────────────────────────────────────────
+bool GigEDevice::sendPacketResend(uint16_t streamChannel,
+                                   uint64_t blockId,
+                                   uint32_t firstPacketId,
+                                   uint32_t lastPacketId,
+                                   bool extendedId)
+{
+    if (!m_packetResendSupported) return false;
+
+    QByteArray pkt;
+    if (extendedId) {
+        pkt.resize(int(sizeof(GvcpPacketResendExtCmd)));
+        auto* c = reinterpret_cast<GvcpPacketResendExtCmd*>(pkt.data());
+        c->header.key_code    = GVCP_PACKET_TYPE_CMD;
+        c->header.flags       = GVCP_CMD_FLAG_NONE;  // no ACK
+        c->header.command     = htons16(GVCP_CMD_PACKETRESEND);
+        c->header.length      = htons16(20);
+        c->header.req_id      = htons16(nextReqId());
+        c->stream_channel     = htons16(streamChannel);
+        c->reserved           = 0;
+        c->block_id_high      = htonl32(static_cast<uint32_t>(blockId >> 32));
+        c->block_id_low       = htonl32(static_cast<uint32_t>(blockId & 0xFFFFFFFFu));
+        c->first_packet_id    = htonl32(firstPacketId);
+        c->last_packet_id     = htonl32(lastPacketId);
+    } else {
+        pkt.resize(int(sizeof(GvcpPacketResendCmd)));
+        auto* c = reinterpret_cast<GvcpPacketResendCmd*>(pkt.data());
+        c->header.key_code    = GVCP_PACKET_TYPE_CMD;
+        c->header.flags       = GVCP_CMD_FLAG_NONE;
+        c->header.command     = htons16(GVCP_CMD_PACKETRESEND);
+        c->header.length      = htons16(12);
+        c->header.req_id      = htons16(nextReqId());
+        c->stream_channel     = htons16(streamChannel);
+        c->block_id           = htons16(static_cast<uint16_t>(blockId & 0xFFFFu));
+        c->first_packet_id    = htonl32(firstPacketId);
+        c->last_packet_id     = htonl32(lastPacketId);
+    }
+
+    // PacketResend has no ACK — fire-and-forget
+    m_socket.writeDatagram(pkt, m_cameraIp, GVCP_PORT);
+    return true;
+}
+
 // ── loadGenApiXml ─────────────────────────────────────────────────────────────
 QByteArray GigEDevice::loadGenApiXml()
 {
     QByteArray urlBuf(GVBS_XML_URL_SIZE, 0);
-    if (!readMemory(GVBS_XML_URL_0_OFFSET,
+    if (!readMemory(GVBS_FIRST_URL_OFFSET,
                     reinterpret_cast<uint8_t*>(urlBuf.data()),
                     GVBS_XML_URL_SIZE))
         return {};
 
-    // URL 문자열 추출 (null terminator까지만)
     const QString url = QString::fromLatin1(
         urlBuf.constData(),
         qstrnlen(urlBuf.constData(), GVBS_XML_URL_SIZE)).trimmed();
     qDebug("GigEDevice::loadGenApiXml: URL = [%s]", qPrintable(url));
 
-    // GigE Vision Spec: "Local:filename;address;size"
-    // address/size는 0x 접두사 없는 hex 또는 접두사 있는 hex 모두 허용
-    // 예: "local:GV-504xFA-C.zip;70000000;112f0"
-    //      → addr=0x70000000, size=0x112f0=70384
-
+    // GV 2.2 §10.2.3: "Local:filename;address;size" — address and size are hex
     if (url.startsWith("Local:", Qt::CaseInsensitive)) {
-        // "Local:" 다음부터 ';'로 분리
-        const QString body  = url.mid(6);       // "Local:" = 6 chars
+        const QString body = url.mid(6);
         const QStringList parts = body.split(';');
 
         if (parts.size() >= 3) {
             bool ok1 = false, ok2 = false;
-
-            // 주소/크기: '0x' 접두사 있으면 자동, 없으면 16진수로 강제 파싱
             QString addrStr = parts[1].trimmed();
             QString sizeStr = parts[2].trimmed();
 
-            // toUInt(0) 은 '0x' 접두사가 있을 때만 hex로 파싱
-            // → 접두사 없는 순수 hex ('70000000', '112f0')는 base=16 명시 필요
-            const int base = (addrStr.startsWith("0x", Qt::CaseInsensitive) ||
-                              addrStr.startsWith("0X")) ? 0 : 16;
-
+            // Address/size may or may not have a 0x prefix
+            const int base = (addrStr.startsWith("0x", Qt::CaseInsensitive)) ? 0 : 16;
             const uint32_t addr = addrStr.toUInt(&ok1, base);
             const uint32_t sz   = sizeStr.toUInt(&ok2, base);
 
-            qDebug("GigEDevice::loadGenApiXml: parsed addr=0x%08X size=0x%X (%u bytes)",
-                   addr, sz, sz);
+            qDebug("GigEDevice::loadGenApiXml: addr=0x%08X size=0x%X", addr, sz);
 
             if (ok1 && ok2 && sz > 0 && sz < 8 * 1024 * 1024) {
                 QByteArray xmlData(int(sz), 0);
                 if (readMemory(addr,
-                               reinterpret_cast<uint8_t*>(xmlData.data()),
-                               sz)) {
-                    qDebug("GigEDevice::loadGenApiXml: read %d bytes from 0x%08X",
-                           xmlData.size(), addr);
-                    // ZIP 헤더 확인 (PK\x03\x04)
+                               reinterpret_cast<uint8_t*>(xmlData.data()), sz)) {
+                    // ZIP magic: PK\x03\x04
                     if (xmlData.size() >= 4 &&
                         uint8_t(xmlData[0]) == 0x50 &&
                         uint8_t(xmlData[1]) == 0x4B) {
@@ -708,32 +825,27 @@ QByteArray GigEDevice::loadGenApiXml()
                         return ArvGenApiXml::decompressZip(xmlData);
                     }
                     return xmlData;
-                } else {
-                    qWarning("GigEDevice::loadGenApiXml: readMemory failed "
-                             "addr=0x%08X size=%u", addr, sz);
                 }
+                qWarning("GigEDevice::loadGenApiXml: readMemory failed "
+                         "addr=0x%08X size=%u", addr, sz);
             } else {
                 qWarning("GigEDevice::loadGenApiXml: parse failed "
                          "ok1=%d ok2=%d addr=0x%08X sz=%u",
                          ok1, ok2, addr, sz);
             }
-        } else {
-            qWarning("GigEDevice::loadGenApiXml: not enough parts (%d)",
-                     parts.size());
         }
     }
 
-    qWarning("GigEDevice::loadGenApiXml: unsupported URL format [%s]",
-             qPrintable(url));
+    qWarning("GigEDevice::loadGenApiXml: unsupported URL [%s]", qPrintable(url));
     return {};
 }
 
 // ── Heartbeat ─────────────────────────────────────────────────────────────────
 void GigEDevice::onHeartbeat()
 {
-    // CCP 레지스터 읽기로 keepalive (heartbeat 역할)
+    // GV 2.2 §14.2: host must send a GVCP command within the heartbeat timeout
+    // to maintain the control channel. Reading CCP is the minimal overhead option.
     uint32_t val{};
-    if (!readRegister(GVBS_CCP_OFFSET, val)) {
+    if (!readRegister(GVBS_CCP_OFFSET, val))
         qWarning("GigEDevice: heartbeat failed — camera may have disconnected");
-    }
 }

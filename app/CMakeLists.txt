@@ -26,8 +26,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /utf-8 /W3 /MP)
+    # Always /MD — must match GenICam SDK and Qt Release DLLs (see root CMakeLists)
     set_property(TARGET ${PROJECT_NAME} PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 endif()
 
 # windeployqt
@@ -40,6 +41,17 @@ if(WINDEPLOYQT)
         COMMENT "windeployqt...")
 endif()
 
+# GenICam DLLs
+set(GENICAM_BIN_DIR "${CMAKE_SOURCE_DIR}/thirdparty/genicam/bin/Win64_x64")
+if(EXISTS "${GENICAM_BIN_DIR}")
+    file(GLOB GENICAM_DLLS "${GENICAM_BIN_DIR}/*.dll")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${GENICAM_DLLS}
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+        COMMENT "Copying GenICam DLLs...")
+endif()
+
 # INSTALL
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install"
@@ -47,11 +59,21 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
 
-# vcpkg DLL
+# vcpkg DLLs — copy to build output dir at post-build, and to install prefix
 foreach(_dir
     "$ENV{VCPKG_ROOT}/installed/x64-windows/bin"
     "C:/vcpkg/installed/x64-windows/bin")
     if(EXISTS "${_dir}")
+        file(GLOB _VCPKG_DLLS
+            "${_dir}/libusb*.dll"
+            "${_dir}/zlib*.dll")
+        if(_VCPKG_DLLS)
+            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${_VCPKG_DLLS}
+                    "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+                COMMENT "Copying vcpkg DLLs...")
+        endif()
         install(DIRECTORY "${_dir}/" DESTINATION bin
             FILES_MATCHING PATTERN "libusb*.dll" PATTERN "zlib*.dll")
         break()
