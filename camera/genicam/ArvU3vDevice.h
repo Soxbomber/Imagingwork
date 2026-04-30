@@ -154,6 +154,7 @@ private:
     QString m_modelName;
     QString m_serialNumber;
     QString m_lastError;
+    bool     m_lastErrorWasStatus{false}; // true = camera rejected (don't retry)
     uint16_t m_requestId{1};
     ArvGenApiInfo m_genApi;
 };

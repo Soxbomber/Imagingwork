@@ -186,6 +186,14 @@ static bool isFeatureNode(const QString& tag)
            tag == "Boolean"     || tag == "String";
 }
 
+// Converter/SwissKnife nodes are not features or registers but sit in the
+// pValue chain (e.g. ExposureTime → ExposureTimeValueConverter → IntReg).
+static bool isIntermediaryNode(const QString& tag)
+{
+    return tag == "Converter"      || tag == "IntConverter" ||
+           tag == "SwissKnife"     || tag == "IntSwissKnife";
+}
+
 ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
 {
     ArvGenApiInfo info;
@@ -225,14 +233,16 @@ ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
 
     QMap<QString, RegDef>     regs;
     QMap<QString, FeatureDef> features;
+    QMap<QString, QString>    intermediaries; // Converter/SwissKnife name → pValue target
 
     QXmlStreamReader xml(QByteArray::fromRawData(data, size));
 
     QString curName;
     QString curTag;
-    bool    inFeature = false;
-    bool    inReg     = false;
-    bool    inEntry   = false;
+    bool    inFeature     = false;
+    bool    inReg         = false;
+    bool    inEntry       = false;
+    bool    inIntermediary = false;
     QString entryName;
 
     while (!xml.atEnd()) {
@@ -251,12 +261,17 @@ ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
 
             } else if (isRegNode(tag) && !name.isEmpty()) {
                 curName = name; curTag = tag;
-                inReg = true; inFeature = false; inEntry = false;
+                inReg = true; inFeature = false; inEntry = false; inIntermediary = false;
                 if (!regs.contains(curName)) {
                     RegDef rd;
                     rd.isFloat = (tag == "FloatReg");
                     regs[curName] = rd;
                 }
+
+            } else if (isIntermediaryNode(tag) && !name.isEmpty()) {
+                curName = name; curTag = tag;
+                inIntermediary = true; inFeature = false; inReg = false; inEntry = false;
+                intermediaries[curName] = QString();
 
             } else if (inFeature) {
                 auto& fd = features[curName];
@@ -291,6 +306,11 @@ ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
                     }
                 }
 
+            } else if (inIntermediary) {
+                if (tag == "pValue") {
+                    intermediaries[curName] = xml.readElementText().trimmed();
+                }
+
             } else if (inReg) {
                 auto& rd = regs[curName];
                 if (tag == "Address" || tag == "Offset") {
@@ -306,14 +326,15 @@ ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
 
         } else if (tok == QXmlStreamReader::EndElement) {
             const QString tag = xml.name().toString();
-            if (isFeatureNode(tag) && tag == curTag) { inFeature = false; }
-            if (isRegNode(tag)     && tag == curTag) { inReg = false; }
-            if (tag == "EnumEntry")                  { inEntry = false; }
+            if (isFeatureNode(tag)     && tag == curTag) { inFeature = false; }
+            if (isRegNode(tag)         && tag == curTag) { inReg = false; }
+            if (isIntermediaryNode(tag) && tag == curTag) { inIntermediary = false; }
+            if (tag == "EnumEntry")                       { inEntry = false; }
         }
     }
 
-    qDebug("ArvGenApiXml: parsed %d features, %d registers",
-           features.size(), regs.size());
+    qDebug("ArvGenApiXml: parsed %d features, %d registers, %d intermediaries",
+           features.size(), regs.size(), intermediaries.size());
 
     // ── 2패스: 피처 → 레지스터 연결 → GenApiNode 생성 ──────────────────────
     for (auto it = features.begin(); it != features.end(); ++it) {
@@ -336,13 +357,15 @@ ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
         else if (fd.tag == "Command")     node.type = GenApiNodeType::Command;
         else continue;
 
-        // pValue → 레지스터 연결 (직접 또는 Converter 체인)
+        // pValue → 레지스터 연결 (직접, Feature 체인, 또는 Converter/SwissKnife 체인)
         QString regRef = fd.pValueRef;
 
-        // 최대 3단계 간접 참조 (IntSwissKnife, Converter 등)
-        for (int depth = 0; depth < 3 && !regs.contains(regRef); ++depth) {
+        // 최대 5단계 간접 참조 (Converter, SwissKnife 등 경유 허용)
+        for (int depth = 0; depth < 5 && !regs.contains(regRef); ++depth) {
             if (features.contains(regRef))
                 regRef = features[regRef].pValueRef;
+            else if (intermediaries.contains(regRef))
+                regRef = intermediaries[regRef];
             else
                 break;
         }
@@ -360,9 +383,15 @@ ArvGenApiInfo ArvGenApiXml::parse(const QByteArray& xmlData)
         node.bigEndian = rd.bigEndian;
         node.valid     = true;
 
-        // FloatReg이면 Float 타입으로 보정
-        if (rd.isFloat && node.type == GenApiNodeType::Integer)
+        // Physical register type determines read/write format.
+        // FloatReg → float access; IntReg → integer access regardless of feature type.
+        // A Float feature routed through a Converter to an IntReg (e.g. ExposureTime
+        // in µs → Converter → IntReg in ns) must be written as an integer — the
+        // Converter formula is not applied here, callers handle unit scaling.
+        if (rd.isFloat)
             node.type = GenApiNodeType::Float;
+        else if (node.type == GenApiNodeType::Float)
+            node.type = GenApiNodeType::Integer;
 
         info.nodes[fname] = node;
     }

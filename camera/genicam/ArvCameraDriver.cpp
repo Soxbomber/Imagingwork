@@ -40,6 +40,13 @@ static bool writeGenApiFloat(ArvU3vDevice& dev, const GenApiNode& node, double v
     if (node.bigEndian) raw = bswap32(raw);
     return dev.writeMemory(node.address, &raw, 4);
 }
+static bool writeGenApiEnum(ArvU3vDevice& dev, const GenApiNode& node, const QString& entry)
+{
+    if (!node.valid) return false;
+    auto it = node.enumEntries.find(entry);
+    if (it == node.enumEntries.end()) return false;
+    return writeGenApiInteger(dev, node, it.value());
+}
 static bool readGenApiInteger(ArvU3vDevice& dev, const GenApiNode& node, int64_t& out)
 {
     if (!node.valid) return false;
@@ -208,14 +215,97 @@ bool ArvCameraDriver::StartGrabbing(const DeviceInfo& di,
             }
         }
 
-        // ── 4. Stream enable (SIRM 설정 + data EP reset) ──────────────────
+        // ── 4. Pre-acquisition NodeMap parameters (direct register write) ──
+        // Must run before enableStream(): IDS cameras assert SI_CONTROL_STREAM_ENABLE
+        // and then reject GenAPI writes with vendor error 0xa586.
+        {
+            const auto& genApi = ctx->device.genApiInfo();
+            //if (ctx->initParams.exposureTime_us.has_value()) {
+            //    const double us = *ctx->initParams.exposureTime_us;
+            //    bool ok = false;
+            //    if (const GenApiNode* n = genApi.get("ExposureTime")) {
+            //        ok = (n->type == GenApiNodeType::Integer)
+            //           ? writeGenApiInteger(ctx->device, *n,
+            //                                static_cast<int64_t>(us * 1000.0))
+            //           : writeGenApiFloat(ctx->device, *n, us);
+            //    }
+            //    qDebug("ArvCameraDriver: pre-acq ExposureTime=%.1f us %s",
+            //           us, ok ? "OK" : "FAILED");
+            //}
+            // ExposureMode must be "Timed" before ExposureTime is writable.
+            // IDS cameras make ExposureMode read-only when TriggerMode is Off
+            // (free-running implicitly = Timed), returning 0xa586 on any write.
+            // Read first: if already "Timed" the write is unnecessary.
+            if (const GenApiNode* modeNode = genApi.get("ExposureMode")) {
+                auto timedIt = modeNode->enumEntries.find("Timed");
+                if (timedIt != modeNode->enumEntries.end()) {
+                    int64_t cur = -1;
+                    const bool alreadyTimed =
+                        readGenApiInteger(ctx->device, *modeNode, cur) &&
+                        cur == timedIt.value();
+                    if (alreadyTimed) {
+                        qDebug("ArvCameraDriver: pre-acq ExposureMode already Timed");
+                    } else {
+                        bool modeOk = ctx->controller &&
+                                      ctx->controller->setEnum("ExposureMode", "Timed");
+                        if (!modeOk)
+                            modeOk = writeGenApiEnum(ctx->device, *modeNode, "Timed");
+                        qDebug("ArvCameraDriver: pre-acq ExposureMode=Timed %s",
+                               modeOk ? "OK" : "FAILED");
+                    }
+                }
+            }
+
+            int64_t ExpVal = -1;
+            const GenApiNode* ExpNode = genApi.get("ExposureTime");
+            readGenApiInteger(ctx->device, *ExpNode, ExpVal);
+            //if (const GenApiNode* ExpNode = genApi.get("ExposureTime")) {
+            //    const double us = 3000.0;
+            //    bool ok = (ExpNode->type == GenApiNodeType::Integer)
+            //        ? writeGenApiInteger(ctx->device, *ExpNode,
+            //                             static_cast<int64_t>(us * 1000.0))
+            //                             //static_cast<int64_t>(us))
+            //        : writeGenApiFloat(ctx->device, *ExpNode, us);
+            //    qDebug("ArvCameraDriver: pre-acq ExposureTime=%.1f us %s",
+            //           us, ok ? "OK" : "FAILED");
+            //}
+
+            int64_t framerate = -1;
+            const GenApiNode* frameNode = genApi.get("AcquisitionFrameRate");
+            readGenApiInteger(ctx->device, *frameNode, framerate);
+
+            if (const GenApiNode* gainNode = genApi.get("Gain")) {
+                const double dB = 1.0;
+                bool ok = (gainNode->type == GenApiNodeType::Integer)
+                    ? writeGenApiInteger(ctx->device, *gainNode,
+                                         static_cast<int64_t>(dB))
+                    : writeGenApiFloat(ctx->device, *gainNode, dB);
+                qDebug("ArvCameraDriver: pre-acq Gain=%.2f dB %s",
+                       dB, ok ? "OK" : "FAILED");
+            }
+
+            //if (ctx->initParams.gain_dB.has_value()) {
+            //    const double dB = *ctx->initParams.gain_dB;
+            //    bool ok = false;
+            //    const GenApiNode* n = genApi.get("Gain");
+            //    if (!n) n = genApi.get("GainRaw");
+            //    if (n)  ok = (n->type == GenApiNodeType::Integer)
+            //               ? writeGenApiInteger(ctx->device, *n,
+            //                                    static_cast<int64_t>(dB))
+            //               : writeGenApiFloat(ctx->device, *n, dB);
+            //    qDebug("ArvCameraDriver: pre-acq Gain=%.2f dB %s",
+            //           dB, ok ? "OK" : "FAILED");
+            //}
+        }
+
+        // ── 5. Stream enable (SIRM 설정 + data EP reset) ──────────────────
         if (!ctx->device.enableStream(ctx->streamParams)) {
             qWarning("ArvCameraDriver: enableStream failed");
             ctx->device.close();
             return false;
         }
 
-        // ── 5. 워커 스레드 시작 ───────────────────────────────────────────
+        // ── 6. 워커 스레드 시작 ───────────────────────────────────────────
         ctx->stream = new ArvU3vStream(&ctx->device, ctx->streamParams);
         ctx->stream->moveToThread(&ctx->thread);
 
@@ -231,37 +321,7 @@ bool ArvCameraDriver::StartGrabbing(const DeviceInfo& di,
 
         ctx->thread.start();
 
-        // ── 5a. Pre-acquisition NodeMap parameters (direct register write) ──
-        // Uses ArvGenApiXml data — works in Debug and Release, no SDK needed.
-        {
-            const auto& genApi = ctx->device.genApiInfo();
-            if (ctx->initParams.exposureTime_us.has_value()) {
-                const double us = *ctx->initParams.exposureTime_us;
-                bool ok = false;
-                if (const GenApiNode* n = genApi.get("ExposureTime")) {
-                    ok = (n->type == GenApiNodeType::Integer)
-                       ? writeGenApiInteger(ctx->device, *n,
-                                            static_cast<int64_t>(us * 1000.0))
-                       : writeGenApiFloat(ctx->device, *n, us);
-                }
-                qDebug("ArvCameraDriver: pre-acq ExposureTime=%.1f us %s",
-                       us, ok ? "OK" : "FAILED");
-            }
-            if (ctx->initParams.gain_dB.has_value()) {
-                const double dB = *ctx->initParams.gain_dB;
-                bool ok = false;
-                const GenApiNode* n = genApi.get("Gain");
-                if (!n) n = genApi.get("GainRaw");
-                if (n)  ok = (n->type == GenApiNodeType::Integer)
-                           ? writeGenApiInteger(ctx->device, *n,
-                                                static_cast<int64_t>(dB))
-                           : writeGenApiFloat(ctx->device, *n, dB);
-                qDebug("ArvCameraDriver: pre-acq Gain=%.2f dB %s",
-                       dB, ok ? "OK" : "FAILED");
-            }
-        }
-
-        // ── 6. AcquisitionStart (카메라 센서 전송 시작) ───────────────────
+        // ── 7. AcquisitionStart (카메라 센서 전송 시작) ───────────────────
         // Aravis: arv_camera_execute_command("AcquisitionStart")
         // 스트림 스레드가 시작된 후에 실행 (Aravis와 동일 순서)
         if (!ctx->device.executeAcquisitionStart()) {

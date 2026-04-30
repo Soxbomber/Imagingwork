@@ -273,6 +273,7 @@ bool ArvU3vDevice::sendCmdRecvAck(uint16_t cmdId,
 
     // Aravis: retry loop (ARV_UV_DEVICE_N_TRIES_MAX = 5)
     // 재시도 시 새 packet_id + 재전송
+    m_lastErrorWasStatus = false;
     for (int attempt = 0; attempt < 5; ++attempt) {
 
         // attempt > 0: 새 ID로 재전송
@@ -334,9 +335,10 @@ bool ArvU3vDevice::sendCmdRecvAck(uint16_t cmdId,
             if (status != ARV_UVCP_STATUS_SUCCESS) {
                 m_lastError = QString("GenCP status 0x%1")
                               .arg(status, 4, 16, QChar('0'));
+                m_lastErrorWasStatus = true;
                 qWarning("ArvU3vDevice: %s cmd=0x%04X",
                          qPrintable(m_lastError), cmdId);
-                return false; // 상태 오류: 재시도 무의미
+                return false; // camera rejected — retrying won't help
             }
 
             // 성공
@@ -412,6 +414,7 @@ bool ArvU3vDevice::readMemory(uint64_t address, void* data,
                                ackLen)) {
                 ok = true; break;
             }
+            if (m_lastErrorWasStatus) break; // camera rejected — don't retry
             qWarning("ArvU3vDevice::readMemory: retry %d "
                      "addr=0x%llX size=%u err=[%s]",
                      i+1, (unsigned long long)(address+offset),
@@ -480,6 +483,7 @@ bool ArvU3vDevice::writeMemory(uint64_t address, const void* data,
                          "bytes_written=%u != blockSize=%u",
                          ack.bytes_written, blockSize);
             } else {
+                if (m_lastErrorWasStatus) break; // camera rejected — don't retry
                 qWarning("ArvU3vDevice::writeMemory: retry %d "
                          "addr=0x%llX size=%u err=[%s]",
                          i+1, (unsigned long long)(address+offset),
@@ -813,6 +817,19 @@ bool ArvU3vDevice::loadGenApi()
     }
 
     m_genApi = ArvGenApiXml::parse(xmlData);
+
+    // Log ExposureTime and Gain addresses for confirmation
+    const struct { const char* name; } kNodes[] = { {"ExposureTime"}, {"Gain"}, {"ExposureMode"}};
+    for (auto& entry : kNodes) {
+        if (const GenApiNode* n = m_genApi.get(entry.name)) {
+            qDebug("ArvU3vDevice::loadGenApi: %-20s addr=0x%010llX  len=%u  type=%d  valid=%d",
+                   entry.name, (unsigned long long)n->address,
+                   n->length, (int)n->type, (int)n->valid);
+        } else {
+            qWarning("ArvU3vDevice::loadGenApi: %-20s NOT FOUND in parsed nodes", entry.name);
+        }
+    }
+
     return m_genApi.acquisitionStart.valid;
 }
 
